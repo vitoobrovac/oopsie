@@ -1,0 +1,225 @@
+"""Private ledger API. Supabase verifies the user token and enforces row ownership."""
+
+import os
+import asyncio
+from datetime import date as Date
+from decimal import Decimal
+from typing import Annotated, Literal
+from uuid import UUID
+
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
+
+from receipt_pipeline import analyze
+
+app = FastAPI(title="oopsie ledger API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[os.environ.get("LUMA_WEB_ORIGIN", "http://localhost:3000")],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+bearer = HTTPBearer(auto_error=False)
+Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+PAGE_SIZE = 200
+MAX_PHOTO = 10 * 1024 * 1024
+ocr_lock = asyncio.Lock()
+
+
+class EntryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    date: Date = Field(ge=Date(1900, 1, 1))
+    name: Text
+    category: str = Field(min_length=1, max_length=40)
+    merchant: str = Field(default="", max_length=120)
+    amountMinor: int = Field(strict=True, ge=-99999999999, le=99999999999)
+
+    @field_validator("amountMinor")
+    @classmethod
+    def reject_zero(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("Amount must not be zero.")
+        return value
+
+
+class Preferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    monthStartDay: int = Field(strict=True, ge=1, le=31)
+
+
+Alias = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
+
+
+class ReceiptLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["product", "discount", "deposit"]
+    receipt_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=240)]
+    display_name: Text
+    category: str = Field(default="", max_length=60)
+    aliases: list[Alias] = Field(default_factory=list, max_length=20)
+    quantity: Decimal | None = Field(default=None, gt=0, le=1000000, decimal_places=3)
+    unit: Literal["unit", "kg", "L"]
+    amount_minor: int = Field(strict=True, ge=-99999999999, le=99999999999)
+    remember: bool = False
+
+
+class ReceiptInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    store: Text
+    date: Date = Field(ge=Date(1900, 1, 1))
+    currency: Literal["EUR"]
+    total_minor: int = Field(strict=True, ge=1, le=99999999999)
+    lines: list[ReceiptLine] = Field(min_length=1, max_length=300)
+
+    @model_validator(mode="after")
+    def reconcile(self):
+        if not any(line.kind == "product" for line in self.lines):
+            raise ValueError("Add at least one product.")
+        if any((line.amount_minor < 0) != (line.kind == "discount") for line in self.lines):
+            raise ValueError("Only discounts can have a negative price.")
+        if sum(line.amount_minor for line in self.lines) != self.total_minor:
+            raise ValueError("The receipt total must equal the sum of its lines.")
+        return self
+
+
+async def database(credentials: Credentials):
+    if credentials is None:
+        raise HTTPException(401, "Sign in to continue.")
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+    if not url or not key:
+        raise HTTPException(503, "The database is not configured.")
+    async with httpx.AsyncClient(
+        base_url=url.rstrip("/") + "/rest/v1/",
+        headers={"apikey": key, "Authorization": f"Bearer {credentials.credentials}"},
+        timeout=10,
+    ) as client:
+        yield client
+
+
+Database = Annotated[httpx.AsyncClient, Depends(database)]
+
+
+async def request(client: httpx.AsyncClient, method: str, path: str, **kwargs):
+    try:
+        response = await client.request(method, path, **kwargs)
+    except httpx.RequestError as exc:
+        raise HTTPException(503, "The database is unavailable.") from exc
+    if response.status_code in (401, 403):
+        raise HTTPException(response.status_code, "Your session cannot access this data.")
+    if response.is_error:
+        try:
+            code = response.json().get("code")
+        except (ValueError, AttributeError):
+            code = None
+        if code in {"PGRST202", "PGRST205", "42P01"}:
+            raise HTTPException(503, "Receipt tables are missing. Apply the receipt migration in Supabase.")
+        raise HTTPException(502, "The database could not complete this request.")
+    return response.json() if response.content else None
+
+
+@app.get("/v1/ledger")
+async def list_ledger(client: Database):
+    entries = []
+    while True:
+        page = await request(client, "GET", "ledger_entries", params={
+            "select": "id,date,name,category,merchant,amountMinor",
+            "order": "date.desc,id.asc", "limit": PAGE_SIZE, "offset": len(entries),
+        })
+        entries.extend(page)
+        if len(page) < PAGE_SIZE:
+            break
+    preferences = await request(client, "GET", "ledger_preferences", params={"select": "monthStartDay"})
+    return {"entries": entries, "monthStartDay": preferences[0]["monthStartDay"] if preferences else 1}
+
+
+@app.post("/v1/transactions", status_code=201)
+async def create_entry(entry: EntryInput, client: Database):
+    rows = await request(client, "POST", "ledger_entries", json=entry.model_dump(mode="json"),
+                         params={"select": "id,date,name,category,merchant,amountMinor"},
+                         headers={"Prefer": "return=representation"})
+    return rows[0]
+
+
+@app.delete("/v1/transactions/{entry_id}", status_code=204)
+async def delete_entry(entry_id: UUID, client: Database):
+    await request(client, "DELETE", "ledger_entries", params={"id": f"eq.{entry_id}"})
+    return Response(status_code=204)
+
+
+@app.put("/v1/preferences")
+async def save_preferences(preferences: Preferences, client: Database):
+    await request(client, "POST", "ledger_preferences", params={"on_conflict": "user_id"},
+                  json=preferences.model_dump(), headers={"Prefer": "resolution=merge-duplicates"})
+    return preferences
+
+
+def receipt_key(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+@app.post("/v1/receipts/analyze")
+async def analyze_receipt(photo: Request, client: Database):
+    user = await request(client, "GET", str(client.base_url.join("/auth/v1/user")))
+    if not isinstance(user, dict) or not user.get("id"):
+        raise HTTPException(401, "Sign in to analyze receipts.")
+    if photo.headers.get("content-type", "").split(";")[0] not in {
+        "image/jpeg", "image/png", "image/webp", "application/octet-stream"
+    }:
+        raise HTTPException(415, "Choose a JPEG, PNG, or WebP photo.")
+    image = bytearray()
+    async for chunk in photo.stream():
+        if len(image) + len(chunk) > MAX_PHOTO:
+            raise HTTPException(413, "The photo must be under 10 MB.")
+        image.extend(chunk)
+    if not image:
+        raise HTTPException(400, "Choose a photo to scan.")
+    if ocr_lock.locked():
+        raise HTTPException(429, "The scanner is busy. Try again in a moment.")
+    async with ocr_lock:
+        try:
+            draft = await run_in_threadpool(analyze, bytes(image))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(503, "The scanner is unavailable. You can enter the receipt manually.") from exc
+    if draft["store"] and draft["lines"]:
+        labels = await request(client, "GET", "receipt_product_labels", params={
+            "select": "receipt_key,display_name,category",
+            "store_key": "eq." + receipt_key(draft["store"]),
+        })
+        known = {row["receipt_key"]: row for row in labels}
+        for line in draft["lines"]:
+            saved = known.get(receipt_key(line["receipt_name"])) if line["kind"] == "product" else None
+            if saved:
+                line.update(display_name=saved["display_name"], category=saved["category"], review=False)
+    return draft
+
+
+@app.get("/v1/receipts")
+async def list_receipts(client: Database):
+    receipts = []
+    while True:
+        batch = await request(client, "GET", "receipts", params={
+            "select": "id,store,purchased_on,currency,total_minor,lines:receipt_lines(position,kind,receipt_name,display_name,category,aliases,quantity,unit,amount_minor)",
+            "order": "purchased_on.desc,id.desc", "lines.order": "position.asc",
+            "limit": 30, "offset": len(receipts),
+        })
+        receipts.extend(batch)
+        if len(batch) < 30:
+            return receipts
+
+
+@app.post("/v1/receipts", status_code=201)
+async def save_receipt(receipt: ReceiptInput, client: Database):
+    receipt_id = await request(client, "POST", "rpc/save_receipt", json={
+        "receipt_id": str(receipt.id), "merchant": receipt.store, "receipt_date": receipt.date.isoformat(),
+        "total": receipt.total_minor, "lines": [line.model_dump(mode="json") for line in receipt.lines],
+    })
+    return {"id": receipt_id}

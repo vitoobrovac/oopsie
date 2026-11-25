@@ -1,0 +1,367 @@
+"use client";
+
+import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useEffect, useId, useState, type FormEvent } from "react";
+import { dismissModal, Modal } from "@/components/layout/modal";
+import { ScanProgress } from "./scan-progress";
+import { accountRequest, useAccount } from "@/components/account/account-provider";
+import { formatMinor } from "@/lib/finance-format";
+import { isDate, parseAmount } from "@/lib/ledger";
+import { localToday } from "@/lib/use-ledger";
+import { productEmoji } from "@/lib/product-icons";
+import { newReceiptId, type ReceiptDraft, type ReceiptLine } from "@/lib/receipts";
+
+type LineEdit = {
+  key: string;
+  kind: ReceiptLine["kind"];
+  original: string;
+  name: string;
+  category: string;
+  amount: string;
+  quantity: string;
+  unit: ReceiptLine["unit"];
+  aliases: string[];
+  review: boolean;
+  remember: boolean;
+};
+
+const input = "mt-1 min-h-11 w-full min-w-0 rounded-xl border border-[#dce4d9] bg-white px-3 text-base";
+const button = "inline-flex min-h-11 items-center justify-center rounded-xl px-4 text-sm font-semibold";
+const primary = button + " bg-[#183c31] text-white disabled:opacity-55";
+const secondary = button + " border border-[#dce4d9] bg-white text-[#183c31]";
+const photoTypes = "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
+
+function moneyInput(cents: number | null) {
+  return cents === null ? "" : (Math.abs(cents) / 100).toFixed(2);
+}
+
+function readAmount(value: string) {
+  if (/^0+(?:[.,]0{1,2})?$/.test(value.trim())) return 0;
+  return parseAmount(value);
+}
+
+function blankLine(): LineEdit {
+  return { key: newReceiptId(), kind: "product", original: "", name: "", category: "",
+    amount: "", quantity: "", unit: "unit", aliases: [], review: true, remember: false };
+}
+
+export function ReceiptReview() {
+  const { session, refreshLedger } = useAccount();
+  const router = useRouter();
+  const discardTitle = useId();
+  const [receiptId, setReceiptId] = useState<string | null>(null);
+  const [preview, setPreview] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editHeader, setEditHeader] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [store, setStore] = useState("");
+  const [day, setDay] = useState("");
+  const [currency, setCurrency] = useState("");
+  const [total, setTotal] = useState("");
+  const [lines, setLines] = useState<LineEdit[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<"scan" | "save" | null>(null);
+
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  function populate(draft: ReceiptDraft) {
+    setReceiptId(newReceiptId());
+    setStore(draft.store ?? "");
+    setDay(draft.date ?? "");
+    setCurrency(draft.currency ?? "");
+    setTotal(moneyInput(draft.total_minor));
+    setWarnings(draft.warnings);
+    setEditHeader(!draft.store || !draft.date || draft.currency !== "EUR" || draft.total_minor === null);
+    setLines(draft.lines.length ? draft.lines.map((item) => ({
+      key: newReceiptId(), kind: item.kind, original: item.receipt_name, name: item.review && item.kind === "product" ? "" : item.display_name,
+      category: item.category, amount: moneyInput(item.amount_minor), quantity: String(item.quantity ?? ""),
+      unit: item.unit, aliases: item.aliases, review: item.review, remember: item.review && item.kind === "product",
+    })) : [blankLine()]);
+    setEditing(true);
+  }
+
+  async function scan(file?: File) {
+    if (!file || !session || busy) return;
+    setError("");
+    if (file.size > 10 * 1024 * 1024) return setError("Choose a photo under 10 MB.");
+    setPreview(URL.createObjectURL(file));
+    setBusy("scan");
+    try {
+      const draft = await accountRequest<ReceiptDraft>(session, "receipts/analyze", {
+        method: "POST", body: file, headers: { "Content-Type": file.type || "application/octet-stream" },
+      });
+      populate(draft);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not scan the photo.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function updateLine(key: string, patch: Partial<LineEdit>) {
+    setLines((current) => current.map((line) => line.key === key ? { ...line, ...patch } : line));
+  }
+
+  const knownAmounts = lines.map((line) => readAmount(line.amount));
+  const calculated = knownAmounts.every((value) => value !== null)
+    ? lines.reduce((sum, line, index) => sum + (line.kind === "discount" ? -1 : 1) * (knownAmounts[index] ?? 0), 0)
+    : null;
+  const printedTotal = readAmount(total);
+  const needsProductLabel = (line: LineEdit) => line.kind === "product" && line.review;
+  const unanswered = lines.filter((line) => needsProductLabel(line) && (!line.name.trim() || !line.category.trim())).length;
+  const reviewOrder = lines.map((line, index) => ({ line, index }))
+    .sort((a, b) => Number(needsProductLabel(b.line)) - Number(needsProductLabel(a.line)));
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !receiptId || busy) return;
+    setError("");
+    if (!store.trim() || !isDate(day) || day > localToday()) return setError("Enter the store and a valid purchase date.");
+    if (currency !== "EUR") return setError("Confirm that this receipt is in EUR. Other currencies are not supported yet.");
+    if (!printedTotal || calculated !== printedTotal || !lines.some((line) => line.kind === "product")) {
+      return setError("Enter the printed total and check that all lines, including discounts and deposits, add up to it.");
+    }
+    const cleanLines = [];
+    for (const [index, line] of lines.entries()) {
+      if (!line.name.trim()) return setError("Enter a name for each unrecognized item.");
+      if (line.kind === "product" && line.review && !line.category.trim()) return setError("Add a category for each unrecognized item.");
+      const quantity = line.kind === "discount" ? "" : line.quantity.trim().replace(",", ".");
+      if (quantity && (!/^\d+(?:\.\d{1,3})?$/.test(quantity) || Number(quantity) <= 0 || Number(quantity) > 1000000)) {
+        return setError("Quantities must be positive, with up to three decimal places.");
+      }
+      const amount = knownAmounts[index]!;
+      if (line.kind === "discount" && amount === 0) return setError("A discount must be larger than zero.");
+      cleanLines.push({
+        kind: line.kind, receipt_name: line.original.trim() || line.name.trim(), display_name: line.name.trim(),
+        category: line.category.trim(), amount_minor: line.kind === "discount" ? -amount : amount,
+        quantity: quantity || null, unit: line.unit, aliases: line.aliases,
+        remember: line.kind === "product" && line.remember,
+      });
+    }
+    setBusy("save");
+    try {
+      const saved = await accountRequest<{ id: string }>(session, "receipts", {
+        method: "POST", body: JSON.stringify({ id: receiptId, store: store.trim(), date: day, currency, total_minor: printedTotal, lines: cleanLines }),
+      });
+      refreshLedger();
+      router.replace("/receipts?receipt=" + saved.id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not save the receipt.");
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link href="/receipts" className="inline-flex min-h-11 items-center text-sm font-semibold text-[#31533c]">← Receipts</Link>
+        {editing && <button type="button" disabled={Boolean(busy)} className="min-h-11 text-sm font-medium text-[#59685e] underline" onClick={() => setDiscardOpen(true)}>Start over</button>}
+      </div>
+      <h1 className="text-3xl font-semibold tracking-tight">{editing ? "Review your receipt" : "Scan a receipt"}</h1>
+      <p className="mt-2 text-sm text-[#59685e]">
+        {editing ? "Tell oopsie what any unfamiliar items are, then check the total and save." : "Take a clear photo of the whole receipt, or choose one from your device."}
+      </p>
+      {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+
+      {!editing && (
+        <section className="mt-5 space-y-3 rounded-2xl border border-[#e4e9e2] bg-white p-5">
+          <fieldset disabled={Boolean(busy)} className="grid gap-3 sm:grid-cols-2">
+            <label className={primary + " cursor-pointer focus-within:ring-2 focus-within:ring-[#537d65]"}>
+              Take a photo
+              <input type="file" accept="image/*" capture="environment" className="sr-only"
+                onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; void scan(file); }} />
+            </label>
+            <label className={secondary + " cursor-pointer focus-within:ring-2 focus-within:ring-[#537d65]"}>
+              Upload a photo
+              <input type="file" accept={photoTypes} className="sr-only"
+                onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; void scan(file); }} />
+            </label>
+          </fieldset>
+          {busy === "scan" && <ScanProgress />}
+          <button type="button" disabled={Boolean(busy)} className="min-h-11 text-sm font-semibold text-[#31533c] underline"
+            onClick={() => { setError(""); populate({ store: null, date: localToday(), currency: "EUR", total_minor: null, lines: [], warnings: [] }); }}>
+            Enter receipt manually
+          </button>
+          <p className="text-xs text-[#59685e]">JPEG, PNG or WebP · Up to 10 MB. The photo is processed for this scan.</p>
+        </section>
+      )}
+
+      {discardOpen && (
+        <Modal titleId={discardTitle} onClose={() => setDiscardOpen(false)}>
+              <h2 id={discardTitle} className="font-semibold">Discard this draft?</h2>
+              <p className="mt-2 text-sm text-[#59685e]">You’ll lose the changes you made to this receipt.</p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" autoFocus className={secondary} onClick={dismissModal}>Keep editing</button>
+                <button type="button" className={primary} onClick={(event) => {
+                  setEditing(false);
+                  setPreview("");
+                  setError("");
+                  dismissModal(event);
+                }}>Discard draft</button>
+              </div>
+        </Modal>
+      )}
+
+      {editing && (
+        <form onSubmit={save} className="mt-5 space-y-4">
+          {preview && (
+            <details className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
+              <summary className="cursor-pointer text-sm font-semibold">View original photo</summary>
+              <Image src={preview} alt="Receipt photo you selected" width={480} height={640} unoptimized className="mx-auto mt-3 h-auto max-h-[65vh] w-auto max-w-full object-contain" />
+            </details>
+          )}
+          {warnings.length > 0 && (
+            <details className="rounded-2xl border border-[#eee1cb] bg-[#fffaf0] px-3 py-2">
+              <summary className="cursor-pointer text-sm font-semibold">Scan notes · {warnings.length}</summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{warnings.map((note, index) => <li key={index}>{note}</li>)}</ul>
+            </details>
+          )}
+          <fieldset disabled={Boolean(busy)} className="space-y-4">
+            <section className="rounded-2xl border border-[#e4e9e2] bg-white p-3 sm:p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0"><p className="break-words text-sm font-semibold">{store || "Store needed"}</p><p className="text-xs text-[#59685e]">{day || "Date needed"} · {printedTotal === null ? "Total needed" : formatMinor(printedTotal)}</p></div>
+                <button type="button" aria-expanded={editHeader} onClick={() => setEditHeader(!editHeader)} className="min-h-11 shrink-0 px-2 text-xs font-semibold text-[#31533c] underline">{editHeader ? "Hide details" : "Edit receipt details"}</button>
+              </div>
+              {editHeader && <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="text-sm font-medium">Store<input required maxLength={120} className={input} value={store} onChange={(event) => setStore(event.target.value)} /></label>
+              <label className="text-sm font-medium">Purchase date<input required type="date" min="1900-01-01" max={localToday()} className={input} value={day} onChange={(event) => setDay(event.target.value)} /></label>
+              <label className="text-sm font-medium">Printed total<input required inputMode="decimal" className={input} value={total} onChange={(event) => setTotal(event.target.value)} /></label>
+              <label className="text-sm font-medium">Currency
+                <select required className={input} value={currency} onChange={(event) => setCurrency(event.target.value)}>
+                  <option value="">Confirm currency</option>
+                  {currency && currency !== "EUR" && <option value={currency}>{currency} (unsupported)</option>}
+                  <option value="EUR">EUR</option>
+                </select>
+              </label>
+              </div>}
+            </section>
+            <datalist id="receipt-categories">{["Bakery", "Fruit", "Vegetables", "Dairy desserts", "Dairy", "Drinks", "Meat", "Groceries", "Other"].map((value) => <option value={value} key={value} />)}</datalist>
+            <section aria-label="Receipt items" className="overflow-hidden rounded-2xl border border-[#e4e9e2] bg-white">
+              <div className="flex justify-between gap-2 border-b border-[#e4e9e2] px-3 py-2 text-xs font-semibold sm:px-4">
+                <span>{lines.length} {lines.length === 1 ? "line" : "lines"}</span>
+                {unanswered > 0 && <span className="text-amber-900">{unanswered} need a name or category</span>}
+              </div>
+              <ul>
+                {reviewOrder.map(({ line, index }) => <ReviewLine key={line.key} line={line} number={index + 1}
+                  onUpdate={(patch) => updateLine(line.key, patch)}
+                  onRemove={() => setLines((current) => current.filter((row) => row.key !== line.key))} />)}
+              </ul>
+            </section>
+            <button type="button" className={secondary} disabled={lines.length >= 300} onClick={() => setLines((current) => [...current, blankLine()])}>+ Add line</button>
+          </fieldset>
+          <div className="sticky bottom-20 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e4e9e2] bg-white p-4 shadow-sm lg:bottom-4">
+            <div className="text-sm">
+              <p className="font-semibold">Lines add up to {calculated === null ? "—" : formatMinor(calculated)}</p>
+              {printedTotal && calculated !== printedTotal ? <p className="text-xs text-red-800">Printed total: {formatMinor(printedTotal)} · Check line amounts</p> : null}
+            </div>
+            <button type="submit" className={primary} disabled={Boolean(busy)}>{busy === "save" ? "Saving…" : "Confirm and save"}</button>
+            {error && <p role="status" className="w-full text-xs text-red-800">{error}</p>}
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function ReviewLine({ line, number, onUpdate, onRemove }: {
+  line: LineEdit;
+  number: number;
+  onUpdate: (patch: Partial<LineEdit>) => void;
+  onRemove: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [checkPrice, setCheckPrice] = useState(readAmount(line.amount) === null);
+  const question = line.kind === "product" && line.review;
+  const price = readAmount(line.amount);
+  const shownPrice = price === null ? "Check price" : formatMinor(line.kind === "discount" ? -price : price);
+  const missingAnswer = question && (!line.name.trim() || !line.category.trim());
+  const summaryName = line.name || line.original || "New line";
+
+  function done() {
+    if (!line.name.trim() || missingAnswer || price === null) return;
+    onUpdate({ review: false });
+    setCheckPrice(false);
+    setExpanded(false);
+  }
+
+  return (
+    <li className="border-b border-[#e4e9e2] last:border-b-0">
+      <div className="flex min-h-14 items-center gap-3 px-3 py-2 sm:px-4">
+        <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#f1f4ed] text-sm">
+          {line.kind === "product" ? productEmoji(line.name, line.category, line.original) : line.kind === "discount" ? "−" : "↩"}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="break-words text-sm font-semibold">{summaryName}</p>
+          {line.original && line.original !== summaryName && <p className="break-words text-xs text-[#59685e]">{line.original}</p>}
+          {line.category && <p className="break-words text-xs text-[#59685e]">{line.category}</p>}
+        </div>
+        <span className={"shrink-0 text-xs font-semibold tabular-nums sm:text-sm " + (price === null ? "text-amber-900" : "")}>{shownPrice}</span>
+        <button type="button" aria-expanded={expanded} aria-label={(expanded ? "Hide details for " : "Edit line ") + number}
+          onClick={() => setExpanded(!expanded)} className="min-h-11 shrink-0 px-1 text-xs font-semibold text-[#31533c] underline">
+          {expanded ? "Hide" : "Edit"}
+        </button>
+      </div>
+
+      {(question || checkPrice || expanded) && (
+        <div className={"mx-2 mb-2 rounded-xl p-3 sm:mx-3 " + (question ? "bg-[#fff8e8]" : "bg-[#f4f7f1]")}>
+          {question && <p className="mb-2 text-sm font-semibold text-[#55421f]">What is this product?</p>}
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+            {(question || expanded) && (
+              <>
+                <label className="col-span-2 text-xs font-medium">Product name
+                  <input maxLength={120} className={input} value={line.name} placeholder="e.g. Water"
+                    onChange={(event) => onUpdate({ name: event.target.value, aliases: [], remember: question ? line.remember : true })} />
+                </label>
+                {line.kind === "product" && <label className="col-span-2 text-xs font-medium">Category
+                  <input list="receipt-categories" maxLength={60} className={input} value={line.category} placeholder="e.g. Drinks"
+                    onChange={(event) => onUpdate({ category: event.target.value, remember: question ? line.remember : true })} />
+                </label>}
+              </>
+            )}
+            {(checkPrice || expanded) && (
+              <label className="text-xs font-medium">{line.kind === "discount" ? "Discount amount" : "Line total"}
+                <input inputMode="decimal" className={input} value={line.amount} onChange={(event) => onUpdate({ amount: event.target.value })} />
+              </label>
+            )}
+            {expanded && (
+              <>
+                <label className="text-xs font-medium">Kind<select className={input} value={line.kind}
+                  onChange={(event) => onUpdate({ kind: event.target.value as LineEdit["kind"] })}>
+                  <option value="product">Product</option><option value="discount">Discount</option><option value="deposit">Deposit</option>
+                </select></label>
+                <label className="col-span-2 text-xs font-medium">Name on receipt<input maxLength={240} className={input} value={line.original}
+                  onChange={(event) => onUpdate({ original: event.target.value })} /></label>
+                {line.kind !== "discount" && (
+                  <>
+                    <label className="text-xs font-medium">Quantity (optional)<input inputMode="decimal" className={input} value={line.quantity}
+                      onChange={(event) => onUpdate({ quantity: event.target.value })} /></label>
+                    <label className="text-xs font-medium">Unit<select className={input} value={line.unit}
+                      onChange={(event) => onUpdate({ unit: event.target.value as LineEdit["unit"] })}>
+                      <option value="unit">Count</option><option value="kg">kg</option><option value="L">L</option>
+                    </select></label>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+          {line.kind === "product" && (question || expanded) && (
+            <label className="mt-1 flex min-h-11 items-center gap-2 text-xs text-[#59685e]">
+              <input type="checkbox" checked={line.remember} onChange={(event) => onUpdate({ remember: event.target.checked })} />
+              Remember for next time at this store
+            </label>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            {expanded ? <button type="button" aria-label={"Remove line " + number} className="min-h-11 px-2 text-xs font-semibold text-red-800" onClick={onRemove}>Remove line</button> : <span />}
+            <button type="button" disabled={!line.name.trim() || missingAnswer || price === null} onClick={done}
+              className="min-h-11 rounded-lg border border-[#dce4d9] bg-white px-3 text-xs font-semibold text-[#31533c] disabled:opacity-50">
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}

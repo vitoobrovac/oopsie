@@ -1,0 +1,7 @@
+node_modules/
+.ocr-cache/
+.rapidocr-deps/
+__pycache__/
+photos/
+results/
+*.traineddata

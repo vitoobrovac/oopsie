@@ -1,0 +1,10 @@
+.venv/
+node_modules/
+.next/
+__pycache__/
+.env
+.env.*
+!.env.example
+experiments/receipt-ocr/photos/
+experiments/receipt-ocr/results/
+experiments/receipt-ocr/.rapidocr-deps/

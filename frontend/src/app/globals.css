@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f7f8f7;
+  --ink: #17211c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button, a { -webkit-tap-highlight-color: transparent; }

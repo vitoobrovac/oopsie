@@ -1,0 +1,124 @@
+[
+  {
+    "id": "toast-bread",
+    "display_name": "Bread",
+    "type": "Toast bread",
+    "category": "Bakery",
+    "receipt_names": ["SBUDGET TOASTBROT"],
+    "receipt_keywords": ["TOASTBROT", "TOAST BREAD"],
+    "search_aliases": ["bread", "toast", "sandwich bread"]
+  },
+  {
+    "id": "monte-white",
+    "display_name": "Milk pudding",
+    "type": "Milk cream dessert",
+    "category": "Dairy desserts",
+    "receipt_names": ["ZOTT MONTE WHITE", "MONTE WHITE"],
+    "search_aliases": ["pudding", "milk dessert", "zott", "monte"]
+  },
+  {
+    "id": "monte-dessert",
+    "display_name": "Dairy dessert",
+    "type": "Milk cream dessert",
+    "category": "Dairy desserts",
+    "receipt_names": ["ZOTT MONTE"],
+    "search_aliases": ["pudding", "milk dessert", "zott", "monte"]
+  },
+  {
+    "id": "paper-bag",
+    "display_name": "Paper bag",
+    "type": "Shopping bag",
+    "category": "Shopping supplies",
+    "receipt_names": ["KRAFTPAPIER TASCHE"],
+    "receipt_keywords": ["PAPIERTASCHE", "PAPER BAG"],
+    "search_aliases": ["bag", "paper bag"]
+  },
+  {
+    "id": "sweetcorn",
+    "display_name": "Sweetcorn",
+    "type": "Sweetcorn",
+    "category": "Vegetables",
+    "receipt_names": ["SBUDGET MAIS 340G"],
+    "search_aliases": ["corn", "sweet corn"]
+  },
+  {
+    "id": "drink-syrup",
+    "display_name": "Drink syrup",
+    "type": "Syrup concentrate",
+    "category": "Drinks",
+    "receipt_keywords": ["MAUTNER SIRUP"],
+    "search_aliases": ["syrup", "cordial"]
+  },
+  {
+    "id": "mixed-salad",
+    "display_name": "Mixed salad",
+    "type": "Salad greens",
+    "category": "Vegetables",
+    "receipt_keywords": ["MISCHSALAT", "JUNGSALAT MIX", "MIXED SALAD"],
+    "search_aliases": ["salad", "leaves", "greens"]
+  },
+  {
+    "id": "tomatoes",
+    "display_name": "Tomatoes",
+    "type": "Tomatoes",
+    "category": "Vegetables",
+    "receipt_keywords": ["TOMATEN", "TOMATOES"],
+    "search_aliases": ["tomato", "tomatoes"]
+  },
+  {
+    "id": "lambs-lettuce",
+    "display_name": "Lamb’s lettuce",
+    "type": "Salad greens",
+    "category": "Vegetables",
+    "receipt_keywords": ["VOGERLSALAT", "FELDSALAT"],
+    "search_aliases": ["lettuce", "salad", "greens"]
+  },
+  {
+    "id": "bananas",
+    "display_name": "Bananas",
+    "type": "Bananas",
+    "category": "Fruit",
+    "receipt_keywords": ["BANANEN", "BANANAS"],
+    "search_aliases": ["banana"]
+  },
+  {
+    "id": "pears",
+    "display_name": "Pears",
+    "type": "Pears",
+    "category": "Fruit",
+    "receipt_keywords": ["BIRNE", "BIRNEN", "PEAR", "PEARS", "KRUŠKA", "KRUŠKE"],
+    "search_aliases": ["pear", "pears"]
+  },
+  {
+    "id": "milk",
+    "display_name": "Milk",
+    "type": "Milk",
+    "category": "Dairy",
+    "receipt_keywords": ["VOLLMILCH", "FRISCHMILCH", "MILCH", "MILK"],
+    "search_aliases": ["milk", "dairy"]
+  },
+  {
+    "id": "oat-milk",
+    "display_name": "Oat milk",
+    "type": "Oat drink",
+    "category": "Drinks",
+    "receipt_keywords": ["OAT MILK", "HAFERMILCH", "HAFERDRINK"],
+    "search_aliases": ["milk", "oat drink"]
+  },
+  {
+    "id": "apples",
+    "display_name": "Apples",
+    "type": "Apples",
+    "category": "Fruit",
+    "receipt_keywords": ["APFEL", "ÄPFEL", "APPLE", "APPLES", "JABUKA", "JABUKE"],
+    "search_aliases": ["apple", "apples"]
+  },
+  {
+    "id": "granny-smith-apples",
+    "display_name": "Apples",
+    "type": "Granny Smith apples",
+    "category": "Fruit",
+    "receipt_keywords": ["APFEL GRANNY", "GRANNY SMITH"],
+    "search_aliases": ["apple", "apples", "granny smith"]
+  }
+]
