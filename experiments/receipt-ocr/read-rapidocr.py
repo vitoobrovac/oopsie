@@ -22,9 +22,16 @@ def load_reader(model: str):
         sys.path.insert(0, str(local_dependencies))
 
     from rapidocr import EngineType, ModelType, OCRVersion, RapidOCR
+    import cv2
 
+    cv2.setNumThreads(1)
     print(f"Loading PP-OCRv5 ({model})...", file=sys.stderr)
     return RapidOCR(params={
+        "EngineConfig.onnxruntime.intra_op_num_threads": 1,
+        "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+        "EngineConfig.onnxruntime.enable_cpu_mem_arena": False,
+        "Det.limit_type": "max",
+        "Det.limit_side_len": 1600,
         "Det.engine_type": EngineType.ONNXRUNTIME,
         "Det.lang_type": "ch",
         "Det.ocr_version": OCRVersion.PPOCRV5,
@@ -33,6 +40,7 @@ def load_reader(model: str):
         "Rec.lang_type": LANGUAGE_CODES[model],
         "Rec.ocr_version": OCRVersion.PPOCRV5,
         "Rec.model_type": ModelType.MOBILE,
+        "Rec.rec_batch_num": 1,
         "Global.use_cls": False,
     })
 

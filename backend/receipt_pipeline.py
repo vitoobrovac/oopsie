@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 
 LAB = Path(__file__).resolve().parents[1] / "experiments" / "receipt-ocr"
+SCAN_SIDE = 1800
 
 
 @lru_cache(maxsize=1)
@@ -16,24 +17,38 @@ def pipeline():
     return scanner["recognize_bytes"], parser["parse_receipt"], matcher["enrich_receipt"], matcher["load_catalog"]()
 
 
-def analyze(image: bytes) -> dict:
+def normalize_photo(image: bytes) -> bytes:
     from PIL import Image, ImageOps, UnidentifiedImageError
 
     try:
         with Image.open(BytesIO(image)) as source:
             if source.format not in {"JPEG", "PNG", "WEBP"}:
                 raise ValueError("Choose a JPEG, PNG, or WebP receipt photo.")
-            if source.width * source.height > 52_000_000:
+            max_pixels = 52_000_000 if source.format == "JPEG" else 12_000_000
+            if source.width * source.height > max_pixels:
                 raise ValueError("This photo is too large. Try a smaller copy.")
-            oriented = ImageOps.exif_transpose(source).convert("RGB")
-            oriented.thumbnail((2400, 2400))
+            if source.format == "JPEG" and max(source.size) > SCAN_SIDE:
+                scale = SCAN_SIDE / max(source.size)
+                # Ask JPEG's decoder for a smaller image before allocating the pixels.
+                source.draft("RGB", (max(1, round(source.width * scale)), max(1, round(source.height * scale))))
+            source.thumbnail((SCAN_SIDE, SCAN_SIDE))
+            ImageOps.exif_transpose(source, in_place=True)
             normalized = BytesIO()
-            oriented.save(normalized, format="JPEG", quality=94)
+            if source.mode == "RGB":
+                source.save(normalized, format="JPEG", quality=95)
+            else:
+                with source.convert("RGB") as rgb:
+                    rgb.save(normalized, format="JPEG", quality=95)
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise ValueError("This photo could not be read. Try a JPEG or PNG.") from exc
 
+    return normalized.getvalue()
+
+
+def analyze(image: bytes) -> dict:
+    normalized = normalize_photo(image)
     recognize, parse, enrich, catalog = pipeline()
-    ocr = recognize(normalized.getvalue())
+    ocr = recognize(normalized)
     if not ocr["lines"]:
         raise ValueError("No text was found. Try better light or a closer photo.")
     draft = enrich(parse(ocr), catalog)

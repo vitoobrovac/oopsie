@@ -1,10 +1,12 @@
 import unittest
+from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
 import httpx
 from fastapi.testclient import TestClient
 
 from main import app, database
+from receipt_pipeline import normalize_photo
 
 PRODUCT = {
     "kind": "product", "receipt_name": "SHOP  PEARS", "display_name": "Pears",
@@ -54,3 +56,15 @@ class ReceiptApiTest(unittest.TestCase):
         self.assertEqual(db.await_count, 1)
         self.assertEqual(db.await_args.args[1:], ("POST", "rpc/save_receipt"))
         self.assertTrue(db.await_args.kwargs["json"]["lines"][0]["remember"])
+
+    def test_large_phone_jpeg_is_resized_and_rotated_for_ocr(self):
+        from PIL import Image
+
+        original = BytesIO()
+        with Image.new("RGB", (2400, 1200), "white") as image:
+            exif = image.getexif()
+            exif[274] = 6
+            image.save(original, format="JPEG", exif=exif)
+        with Image.open(BytesIO(normalize_photo(original.getvalue()))) as photo:
+            self.assertEqual(photo.size, (900, 1800))
+            self.assertIsNone(photo.getexif().get(274))
