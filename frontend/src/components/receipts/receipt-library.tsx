@@ -56,8 +56,13 @@ export function ReceiptLibrary() {
 function ReceiptDetails({ receipt }: { receipt: Receipt }) {
   return (
     <section className="rounded-2xl border border-[#e4e9e2] bg-white p-4 sm:p-6">
-      <h2 className="text-xl font-semibold tracking-tight">{receipt.store}</h2>
-      <p className="text-sm text-[#59685e]">{formatReceiptDate(receipt.purchased_on)}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="break-words text-xl font-semibold tracking-tight">{receipt.store}</h2>
+          <p className="text-sm text-[#59685e]">{formatReceiptDate(receipt.purchased_on)}</p>
+        </div>
+        <Link href="/receipts" replace scroll={false} className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-[#dce4d9] px-3 text-sm font-semibold text-[#31533c]">Close receipt</Link>
+      </div>
       <ul className="mt-4 divide-y divide-[#e4e9e2]">
         {receipt.lines.map((line) => (
           <li key={line.position} className="flex items-start justify-between gap-3 py-3 text-sm">

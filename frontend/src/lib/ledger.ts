@@ -1,5 +1,10 @@
 import { formatMinor, formatReceiptDate } from "./finance-format";
 
+export const expenseCategories = [
+  ["Groceries", "Groceries"], ["Dinner", "Dining out"], ["Fun", "Entertainment"],
+  ["Transport", "Transport"], ["Housing", "Housing"], ["Subscriptions", "Subscriptions"],
+] as const;
+
 export type ManualEntry = {
   id: string;
   date: string;

@@ -28,7 +28,7 @@ const morePages: { href: string; label: string; description: string; icon: IconN
   { href: "/budgets", label: "Budgets", description: "Plan category spending", icon: "pie" },
   { href: "/goals", label: "Goals", description: "Track what you’re saving for", icon: "target" },
   { href: "/insights", label: "Insights", description: "Find useful spending patterns", icon: "sparkles" },
-  { href: "/subscriptions", label: "Subscriptions", description: "Keep recurring payments visible", icon: "refresh" },
+  { href: "/subscriptions", label: "Subscriptions", description: "Track recurring expenses", icon: "refresh" },
   { href: "/challenges", label: "Challenges", description: "Save together · Preview", icon: "target" },
   { href: "/settings", label: "Settings", description: "Language, currency and profile", icon: "settings" },
 ];

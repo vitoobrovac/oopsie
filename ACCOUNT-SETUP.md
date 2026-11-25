@@ -49,9 +49,33 @@ When deploying the API, set `LUMA_WEB_ORIGIN` to the frontend's exact origin. Se
 
 Sign in with account A. Add an expense and an income, change the reporting start day, refresh, and check that all three changes persist. Sign in with account B in a separate browser profile and check that it starts with an empty ledger and its own reporting day. Delete a test entry in account A and verify it stays deleted after refresh. Try email confirmation and Google sign-in separately.
 
+## Test budgets, goals and subscriptions in development
+
+Budgets, Goals and Subscriptions use the FastAPI service and Supabase by default, including on localhost. Restart FastAPI after pulling changes so that it loads the planning endpoints. Open the API’s `/docs` page to verify that `/v1/planning/{plan}` is available.
+
+For an isolated browser preview, set `NEXT_PUBLIC_PLANNING_STORAGE=preview` in `frontend/.env.local` and restart Next.js in development mode. This also lets you view any previous preview records stored in that browser. Preview records are scoped to the signed-in account. Due preview subscriptions appear in the local ledger when you open the app or return to the tab. Clearing browser data removes the preview plans. Normal transactions and receipts continue to use the configured API. Production builds always use the API and Supabase.
+
+1. Use a separate Supabase test project or your local Supabase stack. In a fresh test database, run migrations 001, 002 and 003 in order. In the dashboard SQL editor, paste the contents of each file and run it.
+2. Set the Supabase URL and publishable key in both your local API and frontend to the test project's values. Set the frontend API URL to http://localhost:8000 and restart both development servers. Create a test login and open http://localhost:3000.
+3. Open the four-square menu. In Budgets, set a Groceries limit and create a grocery transaction to see it update. In Goals, create a target and set Saved so far. In Subscriptions, add a weekly or monthly expense due today and check Transactions. Reload and verify there is still only one entry for today. You can pause or delete a schedule while keeping its recorded expenses.
+
+Subscription dates use Europe/Berlin. Weekly schedules use the same weekday. Monthly schedules keep the original day and move to the last day in shorter months. Resuming a paused schedule skips occurrences during the pause. A schedule can use an older date as its anchor, and starts posting with its next due date. The API also catches up due payments when the ledger or subscriptions are loaded.
+
+To post due payments even with the app closed, enable Supabase Cron under Integrations on the target database. Then run this in that project's SQL Editor. The named job checks for payments every hour and uses the database posting record to avoid duplicates.
+
+~~~sql
+select cron.schedule(
+  'oopsie-post-subscriptions',
+  '5 * * * *',
+  $select oopsie_private.post_due_subscriptions(null, timezone('Europe/Berlin', now())::date)$
+);
+~~~
+
+[Supabase Cron quickstart](https://supabase.com/docs/guides/cron/quickstart)
+
 ## Before an online beta
 
-- Deploy the Next.js frontend and an always-available FastAPI service behind HTTPS. The API host needs CPU and memory for OCR, the Python dependencies, and the receipt lab source and model files. Confirm production redirect URLs and run both migrations against the intended database.
+- Deploy the Next.js frontend and an always-available FastAPI service behind HTTPS. The API host needs CPU and memory for OCR, the Python dependencies, and the receipt lab source and model files. Confirm production redirect URLs and run the migrations against the intended database.
 - On the public URL, test sign-in, camera and gallery upload, review, repeat-scan corrections, and data isolation with two real accounts. Test on Android Chrome and iPhone Safari, with several receipt formats. Include slow connections, unsupported formats and incorrect OCR totals.
 - Before public signups, implement and test email password recovery, account deletion and a data export. Configure production email delivery and Google consent, and explain in the app what financial information is stored.
 - Add OCR rate limits, service monitoring, a backup and restore procedure, and a staging environment for testing future migrations. Keep photos, OCR text and access tokens out of operational logs.
@@ -71,7 +95,7 @@ Sign in with account A. Add an expense and an income, change the reporting start
    | Start Command | `node node_modules/next/dist/bin/next start -H 0.0.0.0` | `python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT` |
 
    Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `NEXT_PUBLIC_LUMA_API_URL` on the website. Use the API's Render HTTPS URL for the last value. On the API set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `LUMA_WEB_ORIGIN`, with the website's HTTPS origin for the last value. Redeploy the frontend after changing public environment variables.
-3. Apply migrations 001 and 002 in order if this is a fresh Supabase project. Add the website's HTTPS URL as the Supabase Auth Site URL and an allowed redirect. In Google Cloud add the live website origin to the OAuth client and keep the Supabase callback under Authorized redirect URIs.
+3. Apply migrations 001, 002 and 003 in order on a fresh Supabase project. On an existing project that already has 001 and 002, apply 003. Enable the Cron job above when releasing subscriptions. Add the website's HTTPS URL as the Supabase Auth Site URL and an allowed redirect. In Google Cloud add the live website origin to the OAuth client and keep the Supabase callback under Authorized redirect URIs.
 4. Set up and verify the few tester accounts first. In Supabase Auth, turn off **Allow new users to sign up** before sharing the link. Existing accounts can still sign in, including your own. Verify that an account outside your tester list cannot create a new account.
 5. On the HTTPS URL, test signing in, scanning a receipt, fixing one name, saving, and finding the item on your phone. Verify that a second account sees only its own ledger. A free API web service can go idle. Allow for a slow first scan and check memory use with real receipt photos.
 

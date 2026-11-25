@@ -10,7 +10,7 @@ export default function InsightsPage() {
   const { report } = useLedger();
   return (
     <PageShell>
-      <FeaturePage title="Insights" description="Compare monthly spending and see which categories account for the most." primaryAction="Ask oopsie AI" subtitle={report.range} cards={report.cards}>
+      <FeaturePage title="Insights" description="Compare monthly spending and see which categories account for the most." primaryAction="Ask oopsie AI" subtitle={report.range} cards={[]}>
         <div className="grid gap-4 xl:grid-cols-2">
           <MonthlyChart data={report.chart} />
           <CategoryChart categories={report.categories()} period="Current period" />

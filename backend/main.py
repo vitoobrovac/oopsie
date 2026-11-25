@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel, ValidationError, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from receipt_pipeline import analyze
 
@@ -45,6 +45,38 @@ class EntryInput(BaseModel):
         if value == 0:
             raise ValueError("Amount must not be zero.")
         return value
+
+
+PositiveMinor = Annotated[int, Field(strict=True, ge=1, le=99999999999)]
+
+
+class PlanningInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount_minor: PositiveMinor
+
+
+class BudgetInput(PlanningInput):
+    category: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+
+
+class GoalInput(PlanningInput):
+    name: Text
+    saved_minor: int = Field(strict=True, ge=0, le=99999999999)
+
+
+class SubscriptionInput(PlanningInput):
+    name: Text
+    starts_on: Date = Field(ge=Date(1900, 1, 1), le=Date(9999, 1, 1))
+    cadence: Literal["weekly", "monthly"]
+    active: bool
+
+
+Plan = Literal["budgets", "goals", "subscriptions"]
+PLANNING = {
+    "budgets": ("budgets", "id,category,amount_minor", BudgetInput),
+    "goals": ("savings_goals", "id,name,amount_minor,saved_minor", GoalInput),
+    "subscriptions": ("subscriptions", "id,name,amount_minor,starts_on,cadence,active,next_due", SubscriptionInput),
+}
 
 
 class Preferences(BaseModel):
@@ -106,7 +138,7 @@ async def database(credentials: Credentials):
 Database = Annotated[httpx.AsyncClient, Depends(database)]
 
 
-async def request(client: httpx.AsyncClient, method: str, path: str, **kwargs):
+async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_missing=False, **kwargs):
     try:
         response = await client.request(method, path, **kwargs)
     except httpx.RequestError as exc:
@@ -119,13 +151,20 @@ async def request(client: httpx.AsyncClient, method: str, path: str, **kwargs):
         except (ValueError, AttributeError):
             code = None
         if code in {"PGRST202", "PGRST205", "42P01"}:
+            if allow_missing:
+                return None
+            if path in {"budgets", "savings_goals", "subscriptions", "rpc/sync_my_subscriptions"}:
+                raise HTTPException(503, "Planning needs the private planning migration in your development database.")
             raise HTTPException(503, "Receipt tables are missing. Apply the receipt migration in Supabase.")
+        if code == "23505" and path == "budgets":
+            raise HTTPException(409, "A budget already exists for this category.")
         raise HTTPException(502, "The database could not complete this request.")
     return response.json() if response.content else None
 
 
 @app.get("/v1/ledger")
 async def list_ledger(client: Database):
+    await request(client, "POST", "rpc/sync_my_subscriptions", json={}, allow_missing=True)
     entries = []
     while True:
         page = await request(client, "GET", "ledger_entries", params={
@@ -158,6 +197,58 @@ async def save_preferences(preferences: Preferences, client: Database):
     await request(client, "POST", "ledger_preferences", params={"on_conflict": "user_id"},
                   json=preferences.model_dump(), headers={"Prefer": "resolution=merge-duplicates"})
     return preferences
+
+
+@app.get("/v1/planning/{plan}")
+async def list_planning(plan: Plan, client: Database):
+    table, fields, _ = PLANNING[plan]
+    if plan == "subscriptions":
+        await request(client, "POST", "rpc/sync_my_subscriptions", json={})
+    rows = []
+    while True:
+        page = await request(client, "GET", table, params={
+            "select": fields, "order": "id.asc", "limit": PAGE_SIZE, "offset": len(rows),
+        })
+        rows.extend(page)
+        if len(page) < PAGE_SIZE:
+            return rows
+
+
+async def write_plan(plan: Plan, payload: dict, client: Database, entry_id: UUID | None = None):
+    table, fields, model = PLANNING[plan]
+    try:
+        value = model.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(422, "Check the planning fields and try again.") from exc
+    if plan == "subscriptions" and entry_id is not None:
+        await request(client, "POST", "rpc/sync_my_subscriptions", json={})
+    params = {"select": fields}
+    if entry_id is not None:
+        params["id"] = f"eq.{entry_id}"
+    rows = await request(client, "POST" if entry_id is None else "PATCH", table, params=params,
+                         json=value.model_dump(mode="json"), headers={"Prefer": "return=representation"})
+    if not rows:
+        raise HTTPException(404, "This record no longer exists.")
+    return rows[0]
+
+
+@app.post("/v1/planning/{plan}", status_code=201)
+async def create_plan(plan: Plan, payload: dict, client: Database):
+    return await write_plan(plan, payload, client)
+
+
+@app.put("/v1/planning/{plan}/{entry_id}")
+async def update_plan(plan: Plan, entry_id: UUID, payload: dict, client: Database):
+    return await write_plan(plan, payload, client, entry_id)
+
+
+@app.delete("/v1/planning/{plan}/{entry_id}", status_code=204)
+async def delete_plan(plan: Plan, entry_id: UUID, client: Database):
+    table, _, _ = PLANNING[plan]
+    if plan == "subscriptions":
+        await request(client, "POST", "rpc/sync_my_subscriptions", json={})
+    await request(client, "DELETE", table, params={"id": f"eq.{entry_id}"})
+    return Response(status_code=204)
 
 
 def receipt_key(text: str) -> str:

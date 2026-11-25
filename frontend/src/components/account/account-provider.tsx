@@ -3,6 +3,7 @@
 import { createClient, type Session } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { ManualEntry } from "@/lib/ledger";
+import { deleteLocalSubscriptionEntry, localPlanningKey, localSubscriptionEntries, useLocalPlanning } from "@/lib/local-planning";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -16,6 +17,7 @@ type Account = {
   session: Session | null;
   ready: boolean;
   remote: RemoteState | null;
+  previewEntries: ManualEntry[];
   retry: () => void;
   refreshLedger: () => void;
   create: (entry: Omit<ManualEntry, "id">) => Promise<void>;
@@ -23,6 +25,7 @@ type Account = {
   changeDay: (day: number) => Promise<void>;
 };
 
+const noPreviewEntries: ManualEntry[] = [];
 const AccountContext = createContext<Account | null>(null);
 
 export async function accountRequest<T>(session: Session, path: string, init?: RequestInit): Promise<T> {
@@ -43,6 +46,30 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(!supabase);
   const [remote, setRemote] = useState<RemoteState | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [preview, setPreview] = useState<{ owner: string; entries: ManualEntry[] } | null>(null);
+  const owner = session?.user.id;
+  useEffect(() => {
+    if (!useLocalPlanning || !owner) return;
+    function syncPreview() {
+      if (!owner) return;
+      try {
+        setPreview({ owner, entries: localSubscriptionEntries(owner) });
+      } catch {
+        setPreview({ owner, entries: noPreviewEntries });
+      }
+    }
+    function onStorage(event: StorageEvent) {
+      if (owner && (event.key === null || event.key === localPlanningKey(owner))) syncPreview();
+    }
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", syncPreview);
+    const sync = window.setTimeout(syncPreview, 0);
+    return () => {
+      window.clearTimeout(sync);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", syncPreview);
+    };
+  }, [owner, refresh]);
   useEffect(() => {
     if (!supabase) return;
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
@@ -78,6 +105,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   return (
     <AccountContext.Provider value={{
       session, ready, remote: activeRemote,
+      previewEntries: preview && preview.owner === owner ? preview.entries : noPreviewEntries,
       refreshLedger: () => setRefresh((count) => count + 1),
       retry: () => { setRemote(null); setRefresh((count) => count + 1); },
       create: async (entry) => {
@@ -86,6 +114,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         updateFor(active.user.id, (data) => ({ ...data, entries: [saved, ...data.entries.filter((row) => row.id !== saved.id)] }));
       },
       remove: async (id) => {
+        if (useLocalPlanning && owner && id.startsWith("local-subscription:")) {
+          deleteLocalSubscriptionEntry(owner, id);
+          setPreview({ owner, entries: localSubscriptionEntries(owner) });
+          return;
+        }
         const active = requireLedger();
         await accountRequest(active, "transactions/" + encodeURIComponent(id), { method: "DELETE" });
         updateFor(active.user.id, (data) => ({ ...data, entries: data.entries.filter((row) => row.id !== id) }));

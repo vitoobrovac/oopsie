@@ -23,6 +23,34 @@ class LedgerApiTest(unittest.TestCase):
             self.assertEqual(client.get("/v1/ledger").status_code, 401)
             self.assertEqual(client.delete(f"/v1/transactions/{ENTRY_ID}").status_code, 401)
 
+    def test_planning_uses_owner_token_and_validated_cents(self):
+        original_client = httpx.AsyncClient
+        budget = {"category": "Groceries", "amount_minor": 42000}
+        saved = {"id": ENTRY_ID, **budget}
+
+        def database(request):
+            self.assertEqual(request.headers["authorization"], "Bearer test-user")
+            self.assertTrue(request.url.path.endswith("budgets"))
+            if request.method == "GET":
+                return httpx.Response(200, json=[saved])
+            if request.method == "DELETE":
+                return httpx.Response(204)
+            self.assertEqual(json.loads(request.content), budget)
+            return httpx.Response(201, json=[saved])
+
+        env = {"SUPABASE_URL": "https://project.example", "SUPABASE_PUBLISHABLE_KEY": "test-project"}
+        path = "/v1/planning/budgets"
+        with TestClient(app) as anonymous:
+            self.assertEqual(anonymous.get(path).status_code, 401)
+        with patch.dict(os.environ, env), patch("main.httpx.AsyncClient", side_effect=lambda **kw: original_client(
+            **kw, transport=httpx.MockTransport(database)
+        )), TestClient(app, headers={"Authorization": "Bearer test-user"}) as client:
+            self.assertEqual(client.post(path, json={**budget, "user_id": ENTRY_ID}).status_code, 422)
+            self.assertEqual(client.post(path, json={**budget, "amount_minor": 1.5}).status_code, 422)
+            self.assertEqual(client.post(path, json=budget).json(), saved)
+            self.assertEqual(client.get(path).json(), [saved])
+            self.assertEqual(client.delete(f"{path}/{ENTRY_ID}").status_code, 204)
+
     def test_api_uses_user_token_and_validates_writes(self):
         calls = []
         original_client = httpx.AsyncClient
@@ -31,6 +59,8 @@ class LedgerApiTest(unittest.TestCase):
             calls.append(request)
             self.assertEqual(request.headers["authorization"], "Bearer test-user")
             self.assertEqual(request.headers["apikey"], "test-project")
+            if request.url.path.endswith("sync_my_subscriptions"):
+                return httpx.Response(404, json={"code": "PGRST202"})
             if request.method == "GET":
                 result = [] if request.url.path.endswith("ledger_entries") else [{"monthStartDay": 25}]
                 return httpx.Response(200, json=result)
@@ -55,7 +85,7 @@ class LedgerApiTest(unittest.TestCase):
             self.assertEqual(client.post("/v1/transactions", json=ENTRY).json()["id"], ENTRY_ID)
             self.assertEqual(client.put("/v1/preferences", json={"monthStartDay": 26}).status_code, 200)
             self.assertEqual(client.delete(f"/v1/transactions/{ENTRY_ID}").status_code, 204)
-            self.assertEqual(len(calls), 5)
+            self.assertEqual(len(calls), 6)
 
 
 if __name__ == "__main__":

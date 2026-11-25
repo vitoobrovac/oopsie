@@ -30,6 +30,7 @@ function near(word: string, term: string) {
 export function ProductExplorer() {
   const { records, error, retry } = useReceipts();
   const [query, setQuery] = useState("");
+  const [visibleProducts, setVisibleProducts] = useState(8);
   const [selectedKey, setSelectedKey] = useState("");
   const terms = searchText(query).split(" ").filter(Boolean);
   const products = groupProducts(records ?? []);
@@ -53,17 +54,18 @@ export function ProductExplorer() {
         : <>
           <label className="mt-5 flex items-center gap-3 rounded-2xl border border-[#dce4d9] bg-white px-4">
             <Icon name="search" className="size-5 shrink-0 text-[#59685e]" />
-            <input aria-label="Search products" value={query} onChange={(event) => { setQuery(event.target.value); setSelectedKey(""); }} placeholder="Try pears, milk, apple or bread…" className="min-h-12 min-w-0 flex-1 bg-transparent text-base" />
+            <input aria-label="Search products" value={query} onChange={(event) => { setQuery(event.target.value); setSelectedKey(""); setVisibleProducts(8); }} placeholder="Try pears, milk, apple or bread…" className="min-h-12 min-w-0 flex-1 bg-transparent text-base" />
           </label>
           {suggestions.length > 0 && <p className="mt-3 text-sm text-[#59685e]">Showing similar names.</p>}
-          <div className="mt-3 flex flex-wrap gap-2">
-            {matches.map(({ key, name, purchases }) => (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {matches.slice(0, visibleProducts).map(({ key, name, purchases }) => (
               <button key={key} aria-pressed={selected?.key === key} onClick={() => setSelectedKey(key)}
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#e4e9e2] bg-white px-3 text-sm aria-pressed:bg-[#eaf1e7]">
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[#e4e9e2] bg-white px-2 text-xs sm:text-sm aria-pressed:bg-[#eaf1e7]">
                 <span aria-hidden="true">{productEmoji(name, purchases[0].item.category)}</span>{name}
               </button>
             ))}
           </div>
+          {matches.length > visibleProducts && <button onClick={() => setVisibleProducts(visibleProducts + 8)} className="mt-1 min-h-11 px-2 text-sm font-semibold text-[#31533c]">See more products ({matches.length - visibleProducts})</button>}
           {selected && <ProductStats key={selected.key} group={selected} />}
           {!matches.length && <p className="mt-5 text-sm text-[#59685e]">No products match “{query}”.</p>}
         </>}
@@ -74,6 +76,7 @@ export function ProductExplorer() {
 
 function ProductStats({ group }: { group: Group }) {
   const { report, monthStartDay } = useLedger();
+  const [visiblePurchases, setVisiblePurchases] = useState(6);
   const purchases = group.purchases;
   const stores = [...new Set(purchases.map(({ receipt }) => receipt.store))];
   const totals = units.map((unit) => ({ unit, ...measure(purchases, unit) })).filter(({ quantity }) => quantity > 0);
@@ -90,10 +93,10 @@ function ProductStats({ group }: { group: Group }) {
   ];
   return (
     <div className="mt-4 space-y-4">
-      <section className="rounded-2xl bg-[#183c31] p-5 text-white">
-        <h2 className="flex items-center gap-2 text-2xl font-semibold"><span aria-hidden="true">{productEmoji(group.name, purchases[0].item.category)}</span>{group.name}</h2>
+      <section className="rounded-2xl bg-[#183c31] p-3 text-white sm:p-5">
+        <h2 className="flex items-center gap-2 text-xl sm:text-2xl font-semibold"><span aria-hidden="true">{productEmoji(group.name, purchases[0].item.category)}</span>{group.name}</h2>
         <p className="mt-1 text-sm text-[#c5d2cc]">{new Set(purchases.map(({ receipt }) => receipt.id)).size} receipts · {stores.length} stores · Line prices before discounts</p>
-        <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-white/20 pt-4 sm:grid-cols-4">
+        <dl className="mt-2 grid grid-cols-2 gap-2 border-t border-white/20 pt-2 sm:grid-cols-4">
           {stats.map(([label, value]) => <div key={label}><dt className="text-xs text-[#c5d2cc]">{label}</dt><dd className="mt-1 font-semibold tabular-nums">{value}</dd></div>)}
         </dl>
       </section>
@@ -132,7 +135,7 @@ function ProductStats({ group }: { group: Group }) {
       <section className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
         <h3 className="font-semibold">Purchase history</h3>
         <ul className="mt-2 divide-y divide-[#e4e9e2]">
-          {purchases.map(({ receipt, item }) => (
+          {purchases.slice(0, visiblePurchases).map(({ receipt, item }) => (
             <li key={receipt.id + ":" + item.position}>
               <Link href={"/receipts?receipt=" + receipt.id} className="flex items-start justify-between gap-3 py-3 text-sm">
                 <span className="min-w-0 break-words"><span className="font-semibold">{item.display_name}</span><span className="block text-xs text-[#59685e]">{item.receipt_name}</span><span className="block text-xs text-[#59685e]">{receipt.store} · {formatReceiptDate(receipt.purchased_on)}{item.quantity === null ? "" : " · " + formatQuantity(Number(item.quantity)) + " " + unitLabel(item.unit)}</span></span>
@@ -141,6 +144,7 @@ function ProductStats({ group }: { group: Group }) {
             </li>
           ))}
         </ul>
+        {purchases.length > visiblePurchases && <button onClick={() => setVisiblePurchases(visiblePurchases + 6)} className="min-h-11 text-sm font-semibold text-[#31533c]">See more purchases ({purchases.length - visiblePurchases})</button>}
       </section>
     </div>
   );

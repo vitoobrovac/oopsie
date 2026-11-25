@@ -12,7 +12,7 @@ export default function TransactionsPage() {
   const { report, canWrite, deleteEntry } = useLedger();
   return (
     <PageShell>
-      <FeaturePage title="Transactions" description="Your recorded income and expenses." action={<AddTransactionButton />} subtitle={report.range} cards={report.cards}>
+      <FeaturePage title="Transactions" description="Your recorded income and expenses." action={<AddTransactionButton />} cards={[]}>
         <section className="rounded-2xl border border-[#e4e9e2] bg-white p-4 sm:p-6">
           <h2 className="font-semibold">All activity · {report.rows.length} entries</h2>
           {!report.rows.length && <p className="mt-2 text-sm text-[#59685e]">Your saved transactions will appear here.</p>}

@@ -6,12 +6,8 @@ import { dismissModal, Modal } from "@/components/layout/modal";
 import { Toast } from "@/components/layout/toast";
 import { Icon } from "@/components/layout/icon";
 import { localToday, useLedger } from "@/lib/use-ledger";
-import { isDate, parseAmount } from "@/lib/ledger";
+import { expenseCategories, isDate, parseAmount } from "@/lib/ledger";
 
-const expenseCategories = [
-  ["Groceries", "Groceries"], ["Dinner", "Dining out"], ["Fun", "Entertainment"],
-  ["Transport", "Transport"], ["Housing", "Housing"], ["Subscriptions", "Subscriptions"],
-];
 const incomeCategories = [["Salary", "Salary"], ["Freelance", "Freelance"], ["Other income", "Other income"]];
 const field = "mt-1 min-h-11 w-full rounded-xl border border-[#dce4d9] bg-white px-3 py-2 text-base";
 
