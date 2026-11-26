@@ -33,16 +33,19 @@ export function ReceiptLibrary() {
             </div>
             <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
               <ul className="space-y-2">
-                {matches?.map((row) => (
-                  <li key={row.id}>
-                    <Link href={"/receipts?receipt=" + row.id} aria-current={selected?.id === row.id ? "true" : undefined}
-                      className={"flex min-h-14 items-center justify-between gap-2 rounded-xl border border-[#e4e9e2] p-3 " + (selected?.id === row.id ? "bg-[#edf3e8]" : "bg-white")}>
-                      <span className="min-w-0 break-words text-sm font-semibold">{row.store}<span className="block text-xs font-normal text-[#59685e]">{formatReceiptDate(row.purchased_on)} · {row.lines.filter(({ kind }) => kind === "product").length} products</span></span>
-                      <span className="shrink-0 text-sm font-medium tabular-nums">{formatMinor(row.total_minor)}</span>
-                    </Link>
-                    {selected?.id === row.id && <div className="mt-2 lg:hidden"><ReceiptDetails receipt={row} /></div>}
-                  </li>
-                ))}
+                {matches?.map((row) => {
+                  const isOpen = selected?.id === row.id;
+                  return (
+                    <li key={row.id}>
+                      <Link href={isOpen ? "/receipts" : "/receipts?receipt=" + row.id} replace={isOpen} scroll={false} aria-expanded={isOpen}
+                        className={"flex min-h-14 items-center justify-between gap-2 rounded-xl border border-[#e4e9e2] p-3 " + (isOpen ? "bg-[#edf3e8]" : "bg-white")}>
+                        <span className="min-w-0 break-words text-sm font-semibold">{row.store}<span className="block text-xs font-normal text-[#59685e]">{formatReceiptDate(row.purchased_on)} · {row.lines.filter(({ kind }) => kind === "product").length} products</span></span>
+                        <span className="shrink-0 text-sm font-medium tabular-nums">{formatMinor(row.total_minor)}</span>
+                      </Link>
+                      {isOpen && <div className="mt-2 lg:hidden"><ReceiptDetails receipt={row} /></div>}
+                    </li>
+                  );
+                })}
                 {!matches?.length && <li className="text-sm text-[#59685e]">No receipts match these filters.</li>}
               </ul>
               {selected && <div className="hidden lg:block"><ReceiptDetails receipt={selected} /></div>}

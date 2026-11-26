@@ -4,11 +4,9 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Icon } from "@/components/layout/icon";
-import { formatMinor, formatQuantity, formatReceiptDate, monthLabel } from "@/lib/finance-format";
+import { formatMinor, formatQuantity, formatReceiptDate } from "@/lib/finance-format";
 import { productEmoji } from "@/lib/product-icons";
-import { periodStart } from "@/lib/ledger";
 import { groupProducts, searchText, type ReceiptLine } from "@/lib/receipts";
-import { useLedger } from "@/lib/use-ledger";
 import { useReceipts } from "@/lib/use-receipts";
 
 type Group = ReturnType<typeof groupProducts>[number];
@@ -21,6 +19,19 @@ function measure(purchases: Purchases, unit: ReceiptLine["unit"]) {
   const rows = purchases.filter(({ item }) => item.unit === unit && Number(item.quantity) > 0);
   const quantity = rows.reduce((total, { item }) => total + Number(item.quantity), 0);
   return { quantity, price: quantity ? sum(rows) / quantity : null };
+}
+
+function purchasesByStore(purchases: Purchases) {
+  const stores = new Map<string, { name: string; purchases: Purchases }>();
+  for (const purchase of purchases) {
+    const name = purchase.receipt.store.trim();
+    if (!name) continue;
+    const key = name.toLowerCase().replace(/\s+/g, " ");
+    const store = stores.get(key) ?? { name, purchases: [] };
+    store.purchases.push(purchase);
+    stores.set(key, store);
+  }
+  return [...stores.values()];
 }
 
 function near(word: string, term: string) {
@@ -79,20 +90,12 @@ export function ProductExplorer() {
 }
 
 function ProductStats({ group }: { group: Group }) {
-  const { report, monthStartDay } = useLedger();
   const [visiblePurchases, setVisiblePurchases] = useState(6);
   const purchases = group.purchases;
-  const stores = [...new Set(purchases.map(({ receipt }) => receipt.store))];
+  const stores = purchasesByStore(purchases);
   const totals = units.map((unit) => ({ unit, ...measure(purchases, unit) })).filter(({ quantity }) => quantity > 0);
-  const periods = report.chart.map(({ start, month }) => ({
-    month,
-    amount: sum(purchases.filter(({ receipt }) => periodStart(receipt.purchased_on, monthStartDay) === start)),
-  }));
-  const maximum = Math.max(1, ...periods.map(({ amount }) => amount));
   const stats = [
     ["Overall spent", formatMinor(sum(purchases))],
-    ["This period", formatMinor(periods[2].amount)],
-    ["Last period", formatMinor(periods[1].amount)],
     ["Recorded quantity", totals.map(({ unit, quantity }) => formatQuantity(quantity) + " " + (unit === "unit" ? "count" : unit)).join(" + ") || "—"],
   ];
   return (
@@ -100,42 +103,18 @@ function ProductStats({ group }: { group: Group }) {
       <section className="rounded-2xl bg-[#183c31] p-3 text-white sm:p-5">
         <h2 className="flex items-center gap-2 text-xl sm:text-2xl font-semibold"><span aria-hidden="true">{productEmoji(group.name, purchases[0].item.category)}</span>{group.name}</h2>
         <p className="mt-1 text-sm text-[#c5d2cc]">{new Set(purchases.map(({ receipt }) => receipt.id)).size} receipts · {stores.length} stores · Line prices before discounts</p>
-        <dl className="mt-2 grid grid-cols-2 gap-2 border-t border-white/20 pt-2 sm:grid-cols-4">
+        <dl className="mt-2 grid grid-cols-2 gap-2 border-t border-white/20 pt-2">
           {stats.map(([label, value]) => <div key={label}><dt className="text-xs text-[#c5d2cc]">{label}</dt><dd className="mt-1 font-semibold tabular-nums">{value}</dd></div>)}
         </dl>
       </section>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <figure className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
-          <figcaption className="font-semibold">Spending by period</figcaption>
-          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-            {periods.map(({ month, amount }) => (
-              <div key={month}>
-                <div aria-hidden="true" className="flex h-24 items-end justify-center border-b border-[#e4e9e2]"><div className="w-1/2 rounded-t-lg bg-[#86aa62]" style={{ height: 100 * amount / maximum + "%" }} /></div>
-                <p className="mt-2 text-xs">{monthLabel(month, "short")}</p><p className="text-sm font-semibold">{formatMinor(amount)}</p>
-              </div>
-            ))}
-          </div>
-        </figure>
-        {totals.length > 0 && (
-          <section className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
-            <h3 className="font-semibold">Average paid</h3>
-            <p className="mt-1 text-xs text-[#59685e]">Only purchases with a recorded quantity.</p>
-            {totals.map(({ unit, price }) => <p className="mt-2 text-sm" key={unit}>{formatMinor(price!)} per {unitLabel(unit)}</p>)}
-          </section>
-        )}
-      </div>
-      {units.map((unit) => {
-        const prices = stores.map((store) => ({ store, price: measure(purchases.filter(({ receipt }) => receipt.store === store), unit).price }))
-          .filter((row): row is { store: string; price: number } => row.price !== null).sort((a, b) => a.price - b.price);
-        return prices.length < 2 ? null : (
-          <section key={unit} className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
-            <h3 className="font-semibold">Store price comparison · per {unitLabel(unit)}</h3>
-            <ul className="mt-2 divide-y divide-[#e4e9e2]">
-              {prices.map(({ store, price }) => <li key={store} className="flex justify-between gap-2 py-2 text-sm"><span>{store}</span><span>{formatMinor(price)}</span></li>)}
-            </ul>
-          </section>
-        );
-      })}
+      <StorePriceComparison stores={stores} />
+      {totals.length > 0 && (
+        <section className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
+          <h3 className="font-semibold">Average paid</h3>
+          <p className="mt-1 text-xs text-[#59685e]">Only purchases with a recorded quantity.</p>
+          {totals.map(({ unit, price }) => <p className="mt-2 text-sm" key={unit}>{formatMinor(price!)} per {unitLabel(unit)}</p>)}
+        </section>
+      )}
       <section className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
         <h3 className="font-semibold">Purchase history</h3>
         <ul className="mt-2 divide-y divide-[#e4e9e2]">
@@ -151,5 +130,61 @@ function ProductStats({ group }: { group: Group }) {
         {purchases.length > visiblePurchases && <button onClick={() => setVisiblePurchases(visiblePurchases + 6)} className="min-h-11 text-sm font-semibold text-[#31533c]">See more purchases ({purchases.length - visiblePurchases})</button>}
       </section>
     </div>
+  );
+}
+
+function StorePriceComparison({ stores }: { stores: ReturnType<typeof purchasesByStore> }) {
+  if (stores.length < 2) return null;
+
+  const comparisons = units.map((unit) => ({
+    label: "Per " + unitLabel(unit),
+    prices: stores.flatMap(({ name, purchases }) => {
+      const { price } = measure(purchases, unit);
+      return price === null ? [] : [{ name, price: Math.round(price) }];
+    }),
+  })).filter(({ prices }) => prices.length >= 2);
+
+  if (!comparisons.length) {
+    const prices = stores.flatMap(({ name, purchases }) => {
+      const rows = purchases.filter(({ item }) => item.quantity === null);
+      return rows.length ? [{ name, price: Math.round(sum(rows) / rows.length) }] : [];
+    });
+    if (prices.length < 2) return null;
+    comparisons.push({ label: "Per receipt line · quantity missing", prices });
+  }
+
+  return (
+    <section aria-label="Store price comparison" className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
+      <h3 className="font-semibold">Store price comparison</h3>
+      <p className="mt-1 text-xs text-[#59685e]">Average prices from your receipts, before discounts.</p>
+      {comparisons.map(({ label, prices }) => {
+        prices.sort((a, b) => a.price - b.price || a.name.localeCompare(b.name));
+        const lowest = prices[0].price;
+        const highest = prices[prices.length - 1].price;
+        return (
+          <figure key={label} className="mt-4">
+            <figcaption className="text-xs font-semibold text-[#59685e]">{label}</figcaption>
+            <ol className="mt-2 space-y-3">
+              {prices.map(({ name, price }) => {
+                const isLowest = price === lowest && price < highest;
+                return (
+                  <li key={name}>
+                    <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
+                      <span className="min-w-0 break-words font-medium">{name}</span>
+                      <span className="whitespace-nowrap font-semibold tabular-nums">{formatMinor(price)}</span>
+                    </div>
+                    <div aria-hidden="true" className="h-2 overflow-hidden rounded-full bg-[#eaf1e7]">
+                      <div className={"h-full rounded-full " + (isLowest ? "bg-[#34815c]" : "bg-[#738c9e]")}
+                        style={{ width: 100 * price / Math.max(1, highest) + "%" }} />
+                    </div>
+                    {isLowest && <p className="mt-1 text-xs font-medium text-[#31533c]">Lowest average</p>}
+                  </li>
+                );
+              })}
+            </ol>
+          </figure>
+        );
+      })}
+    </section>
   );
 }

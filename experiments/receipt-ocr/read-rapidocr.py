@@ -49,7 +49,7 @@ def recognize_bytes(image: bytes, model: str = "english") -> dict:
     reader = load_reader(model)
     print("Reading the receipt...", file=sys.stderr)
     # Pass local bytes so this command never treats an input string as a URL.
-    result = reader(image, use_cls=False)
+    result = reader(image, use_det=True, use_cls=False, use_rec=True)
     lines = []
     if result.txts is not None:
         for text, score, box in zip(result.txts, result.scores, result.boxes, strict=True):
@@ -60,6 +60,13 @@ def recognize_bytes(image: bytes, model: str = "english") -> dict:
             })
 
     return {"engine": f"ppocrv5-{model}", "text": "\n".join(line["text"] for line in lines), "lines": lines}
+
+
+def recognize_line(image: bytes, model: str = "english") -> tuple[str, float]:
+    result = load_reader(model)(image, use_det=False, use_cls=False, use_rec=True)
+    if not result.txts:
+        return "", 0.0
+    return result.txts[0], float(result.scores[0]) * 100
 
 
 def save_result(photo: Path, payload: dict) -> Path:

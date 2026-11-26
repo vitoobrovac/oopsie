@@ -18,6 +18,8 @@ type Account = {
   ready: boolean;
   displayName: string;
   changeDisplayName: (name: string) => Promise<void>;
+  weekStartDay: number;
+  changeWeekStartDay: (day: number) => Promise<void>;
   remote: RemoteState | null;
   previewEntries: ManualEntry[];
   retry: () => void;
@@ -30,7 +32,11 @@ type Account = {
 const noPreviewEntries: ManualEntry[] = [];
 const AccountContext = createContext<Account | null>(null);
 
-export async function accountRequest<T>(session: Session, path: string, init?: RequestInit): Promise<T> {
+function isWeekday(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 7;
+}
+
+export async function accountFetch(session: Session, path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set("Authorization", "Bearer " + session.access_token);
   if (!headers.has("Content-Type") && init?.body) headers.set("Content-Type", "application/json");
@@ -40,6 +46,11 @@ export async function accountRequest<T>(session: Session, path: string, init?: R
     throw new Error(res.status === 401 ? "Your session has expired. Sign in again." :
       typeof payload?.detail === "string" ? payload.detail : "Check the receipt fields and try again.");
   }
+  return res;
+}
+
+export async function accountRequest<T>(session: Session, path: string, init?: RequestInit): Promise<T> {
+  const res = await accountFetch(session, path, init);
   return res.status === 204 ? undefined as T : await res.json();
 }
 
@@ -94,6 +105,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [session, refresh]);
 
   const activeRemote = remote?.owner === session?.user.id ? remote : null;
+  const savedWeekStart: unknown = session?.user.user_metadata?.week_start_day;
   function updateFor(owner: string, update: (data: LedgerData) => LedgerData) {
     setRemote((current) => current?.owner === owner && current.data ? { owner, data: update(current.data) } : current);
     setRefresh((count) => count + 1);
@@ -113,6 +125,13 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         const cleaned = name.trim();
         if (cleaned.length > 60) throw new Error("Use at most 60 characters.");
         const { error } = await supabase.auth.updateUser({ data: { display_name: cleaned } });
+        if (error) throw error;
+      },
+      weekStartDay: isWeekday(savedWeekStart) ? savedWeekStart : 1,
+      changeWeekStartDay: async (day) => {
+        if (!session || !supabase) throw new Error("Sign in to update your reporting preferences.");
+        if (!isWeekday(day)) throw new Error("Choose a day of the week.");
+        const { error } = await supabase.auth.updateUser({ data: { week_start_day: day } });
         if (error) throw error;
       },
       previewEntries: preview && preview.owner === owner ? preview.entries : noPreviewEntries,

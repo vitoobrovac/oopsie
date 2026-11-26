@@ -12,14 +12,14 @@ from statistics import median
 AMOUNT = r"[+-]?\d+[.,]\d{2}"
 PRICE = re.compile(rf"^\s*[€$£]?\s*({AMOUNT})\s*[€$£]?\s*([A-Z])?\s*$")
 INLINE_PRICE = re.compile(rf"^(.+?\D)\s+[€$£]?\s*({AMOUNT})\s*[€$£]?\s*([A-Z])?\s*$")
-DATE = re.compile(r"\b(?:(\d{4})-(\d{2})-(\d{2})|(\d{1,2})[./-](\d{1,2})[./-](\d{4}))\b")
+DATE = re.compile(r"\b(?:(\d{4})-(\d{2})-(\d{2})|(\d{1,2})\s*[./-]\s*(\d{1,2})\s*[./-]?\s*(\d{4}))(?=\b|[0-2]\d:[0-5]\d)")
 TIME = re.compile(r"\b(?:[01]\d|2[0-3]):[0-5]\d\b")
-TOTAL = re.compile(r"^(?:summe|gesamt(?:summe|betrag)?|endbetrag|(?:grand\s+)?total(?:\s+due)?|ukupno)\b", re.I)
+TOTAL = re.compile(r"^(?:summe|gesamt(?:summe|betrag)?|endbetrag|(?:grand\s+|delivery\s+)?total(?:\s+due)?|ukupno)\b", re.I)
 DISCOUNT = re.compile(r"^(?:mengen\s*vorteil|rabatt|coupon|rabat|popust|discount)", re.I)
 DEPOSIT = re.compile(r"^(?:pfand|deposit|povratna naknada)\b", re.I)
 QUANTITY = re.compile(rf"^(\d+(?:[.,]\d+)?)\s*([x×])?\s+({AMOUNT})$", re.I)
-COLUMN_HEADER = re.compile(r"^(?:description|item(?:s ordered|s| description)?|product(?:s| description)?|article|artikel|opis|naziv|qty|quantity|price|amount|preis|cijena)\s*[:.]?$", re.I)
-ORDER_SUMMARY = re.compile(r"^(?:merchandise value|net amount|subtotal)\b", re.I)
+COLUMN_HEADER = re.compile(r"^(?:description|item(?:s ordered|s| description)?|product(?:s| description)?|article|artikel|opis|naziv|qty|quantity|price|amount|preis|cijena|gericht|menge\s*[x×]\s*einzelpreis|stk\.?\s+bezeichnung|einzel|vkp)\s*[:.]?$", re.I)
+ORDER_SUMMARY = re.compile(r"^(?:merchandise value|net amount|subtotal|lief\.d\.dritte)\b", re.I)
 ITEM_NUMBER = re.compile(r"^(?:item\s*(?:no\.|number|#)|sku\s*[:#])", re.I)
 ITEM_QUANTITY = re.compile(r"^(\d+)\s*[x×]\s+(?=\D)", re.I)
 PAYMENT = re.compile(r"^(?:eftpos|change|cash tendered|subtotal|payment|cash payment|card payment|vat total|tax total)\b", re.I)
@@ -63,11 +63,14 @@ def find_date(lines: list[Region]) -> tuple[str | None, str | None, float | None
         if not match:
             continue
         y1, m1, d1, d2, m2, y2 = match.groups()
+        day, month = int(d1 or d2), int(m1 or m2)
+        if not y1 and month > 12 and day <= 12 and "/" in match[0]:
+            day, month = month, day
         try:
-            value = date(int(y1 or y2), int(m1 or m2), int(d1 or d2))
+            value = date(int(y1 or y2), month, day)
         except ValueError:
             continue
-        time = TIME.search(line.text)
+        time = TIME.search(line.text[match.end():])
         return value.isoformat(), time.group() if time else None, line.y
     return None, None, None
 
@@ -188,7 +191,8 @@ def parse_receipt(payload: dict) -> dict:
     lines = regions(payload)
     height = max(8, median([line.height for line in lines]) if lines else 24)
     purchased_on, clock, date_y = find_date(lines)
-    total_label = next((line for line in reversed(lines) if TOTAL.match(line.text)), None)
+    delivery_total = next((line for line in lines if line.text.lower().startswith("delivery total")), None)
+    total_label = delivery_total or next((line for line in reversed(lines) if TOTAL.match(line.text)), None)
     total_y = total_label.y if total_label else float("inf")
     before_total = [line for line in lines if line.y < total_y]
     first_amount_y = next((line.y for line in before_total if PRICE.fullmatch(line.text) or INLINE_PRICE.fullmatch(line.text)), total_y)
@@ -200,6 +204,8 @@ def parse_receipt(payload: dict) -> dict:
     summary_y = next((line.y for line in lines if first_body_y < line.y < total_y and ORDER_SUMMARY.match(line.text)), total_y)
     body = [line for line in lines if first_body_y < line.y < summary_y - height * 0.8
             and not re.match(r"^(?:ihre ersp|savings|usted ahorr|u[šs]teda)", line.text, re.I)]
+    if delivery_total and any(line.text.lower() == "hot chicken" for line in body):
+        body = [line for line in body if not re.match(r"^(?:\d+\s+)?HotChickenM\d+$", line.text, re.I)]
     left = min((line.left for line in body), default=0)
     right = max((line.right for line in body), default=1)
     price_column = left + (right - left) * 0.67
@@ -231,6 +237,8 @@ def parse_receipt(payload: dict) -> dict:
         next_y = names[index + 1][0].y if index + 1 < len(names) else total_y
         quantity, unit_price, source = infer_quantity(details, line, next_y, amount, height)
         printed_count = ITEM_QUANTITY.match(name)
+        if delivery_total and not printed_count:
+            printed_count = re.match(r"^(\d+)\s+(?=\D)", name)
         if quantity is None and printed_count and int(printed_count[1]) > 0:
             quantity, source = int(printed_count[1]), "printed"
         entry = {"name": name, "line_total_minor": amount}
@@ -268,6 +276,15 @@ def parse_receipt(payload: dict) -> dict:
     if currency == "$":
         currency = next((mark for mark in currencies if mark in {"USD", "AUD", "CAD", "NZD"}), "$")
     store = pick_store(lines, first_body_y)
+    text = " ".join(line.text.casefold() for line in lines)
+    if delivery_total and re.search(r"mc\s*donalds|mcdonalds\.at", text):
+        store = "McDonald’s via Foodora"
+        if "klagenfurt" in text or re.search(r"mcdonalds\.at\b", text):
+            currency = currency or "EUR"
+    elif "zinger burger" in text and "foodora" in text:
+        store = "KFC via Foodora"
+        if "wien" in text:
+            currency = currency or "EUR"
     computed = sum(entry["line_total_minor"] for entry in items + adjustments if entry["line_total_minor"] is not None)
     if total is None or total != computed:
         warnings.append("The extracted line amounts do not match the printed total. Check the original before saving.")

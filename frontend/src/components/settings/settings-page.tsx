@@ -9,6 +9,7 @@ import { useLedger } from "@/lib/use-ledger";
 
 const field = "mt-2 min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 py-2 text-base";
 const saveButton = "mt-3 min-h-11 rounded-xl bg-[#183c31] px-4 text-sm font-semibold text-white disabled:opacity-50";
+const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 type SaveStatus = { text: string; error?: boolean };
 
@@ -23,6 +24,7 @@ export function SettingsPage() {
       <ProfileSetting key={session?.user.id} />
       <HuntProfileSetting />
       <MonthStartSetting />
+      <WeekStartSetting key={session?.user.id} />
       <MotionSetting />
     </div>
   );
@@ -119,6 +121,46 @@ function MonthStartSetting() {
         <p className="mt-1 text-xs text-[#59685e]">Choose your payday or any other day for budgets and monthly reports.</p>
         <p className="mt-2 text-xs font-medium text-[#31533c]">Current period · {report.range}</p>
         <button className={saveButton} disabled={!canWrite || pending || day === monthStartDay}>{pending ? "Saving…" : "Save reporting period"}</button>
+        <Status message={message} />
+      </form>
+    </Group>
+  );
+}
+
+function WeekStartSetting() {
+  const { weekStartDay, changeWeekStartDay } = useAccount();
+  const [draft, setDraft] = useState<number | null>(null);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<SaveStatus | null>(null);
+  const day = draft ?? weekStartDay;
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending || day === weekStartDay) return;
+    setPending(true);
+    setMessage(null);
+    try {
+      await changeWeekStartDay(day);
+      setDraft(null);
+      setMessage({ text: "First day of the week saved." });
+    } catch {
+      setMessage({ text: "Could not save the first day of the week. Try again.", error: true });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Group title="Weekly reporting">
+      <form onSubmit={save}>
+        <label className="block text-sm font-medium">First day of the week
+          <select className={field} disabled={pending} value={day}
+            onChange={(event) => { setDraft(Number(event.target.value)); setMessage(null); }}>
+            {weekdays.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
+          </select>
+        </label>
+        <p className="mt-1 text-xs text-[#59685e]">Sets where the Overview’s weekly spending and income chart begins.</p>
+        <button className={saveButton} disabled={pending || day === weekStartDay}>{pending ? "Saving…" : "Save week start"}</button>
         <Status message={message} />
       </form>
     </Group>

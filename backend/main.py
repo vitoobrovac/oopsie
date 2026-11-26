@@ -1,6 +1,7 @@
 """Private ledger API. Supabase verifies the user token and enforces row ownership."""
 
 import os
+import json
 import asyncio
 from datetime import date as Date
 from decimal import Decimal
@@ -11,6 +12,7 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ValidationError, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
@@ -305,8 +307,7 @@ def receipt_key(text: str) -> str:
     return " ".join(text.lower().split())
 
 
-@app.post("/v1/receipts/analyze")
-async def analyze_receipt(photo: Request, client: Database):
+async def read_receipt_upload(photo: Request, client: httpx.AsyncClient) -> bytes:
     user = await request(client, "GET", str(client.base_url.join("/auth/v1/user")))
     if not isinstance(user, dict) or not user.get("id"):
         raise HTTPException(401, "Sign in to analyze receipts.")
@@ -321,26 +322,82 @@ async def analyze_receipt(photo: Request, client: Database):
         image.extend(chunk)
     if not image:
         raise HTTPException(400, "Choose a photo to scan.")
+    return bytes(image)
+
+
+async def scan_photo(image: bytes, on_stage=None):
     if ocr_lock.locked():
         raise HTTPException(429, "The scanner is busy. Try again in a moment.")
     async with ocr_lock:
         try:
-            draft = await run_in_threadpool(analyze, bytes(image))
+            return await run_in_threadpool(analyze, image, on_stage=on_stage)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         except Exception as exc:
             raise HTTPException(503, "The scanner is unavailable. You can enter the receipt manually.") from exc
-    if draft["store"] and draft["lines"]:
+
+
+async def apply_remembered_products(client: httpx.AsyncClient, draft: dict):
+    for receipt in [draft, *draft.get("additional_receipts", [])]:
+        if not receipt["store"] or not receipt["lines"]:
+            continue
         labels = await request(client, "GET", "receipt_product_labels", params={
             "select": "receipt_key,display_name,category",
-            "store_key": "eq." + receipt_key(draft["store"]),
+            "store_key": "eq." + receipt_key(receipt["store"]),
         })
         known = {row["receipt_key"]: row for row in labels}
-        for line in draft["lines"]:
+        for line in receipt["lines"]:
             saved = known.get(receipt_key(line["receipt_name"])) if line["kind"] == "product" else None
             if saved:
                 line.update(display_name=saved["display_name"], category=saved["category"], review=False)
     return draft
+
+
+def scan_event(kind: str, **payload) -> str:
+    return json.dumps({"type": kind, **payload}, ensure_ascii=False) + "\n"
+
+
+async def receipt_scan_events(image: bytes, client: httpx.AsyncClient):
+    loop = asyncio.get_running_loop()
+    messages = asyncio.Queue()
+
+    def progress(stage: str):
+        loop.call_soon_threadsafe(messages.put_nowait, ("stage", stage))
+
+    def finished(task):
+        if task.cancelled():
+            return
+        # Observe failures even if the client disconnected while OCR was running.
+        error = task.exception()
+        messages.put_nowait(("failure", error) if error else ("draft", task.result()))
+
+    task = asyncio.create_task(scan_photo(image, progress))
+    task.add_done_callback(finished)
+    try:
+        while True:
+            kind, value = await messages.get()
+            if kind == "stage":
+                yield scan_event("stage", stage=value)
+                continue
+            if kind == "failure":
+                raise value
+            yield scan_event("stage", stage="checking")
+            draft = await apply_remembered_products(client, value)
+            yield scan_event("result", draft=draft)
+            return
+    except HTTPException as exc:
+        yield scan_event("error", message=exc.detail)
+
+
+@app.post("/v1/receipts/analyze")
+async def analyze_receipt(photo: Request, client: Database):
+    image = await read_receipt_upload(photo, client)
+    if "application/x-ndjson" in photo.headers.get("accept", ""):
+        return StreamingResponse(
+            receipt_scan_events(image, client), media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-store, no-transform", "X-Accel-Buffering": "no"},
+        )
+    return await apply_remembered_products(client, await scan_photo(image))
 
 
 @app.get("/v1/receipts")

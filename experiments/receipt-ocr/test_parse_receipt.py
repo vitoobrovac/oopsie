@@ -104,6 +104,24 @@ class ParserTest(unittest.TestCase):
         self.assertEqual([item["quantity"] for item in result["items"]], [1, 2])
         self.assertEqual([item["line_total_minor"] for item in result["items"]], [23900, 1490])
 
+    def test_delivery_uses_final_column_and_american_date_when_unambiguous(self):
+        result = parse_receipt({"lines": [
+            line("Anfang: 11/15/2026", 25, 30, 170),
+            line("Klagenfurt McDonalds", 25, 60, 140),
+            line("STK BEZEICHNUNG", 25, 125, 160),
+            line("GESAMT", 330, 126, 60),
+            line("1 HotChickenM5", 25, 153, 130),
+            line("Hot Chicken", 45, 180, 100),
+            line("7.40", 210, 181, 30),
+            line("6.22 A", 330, 181, 55),
+            line("Delivery TOTAL", 25, 220, 130),
+            line("6.22", 340, 223, 45),
+        ]})
+        self.assertEqual(result["date"], "2026-11-15")
+        self.assertEqual(result["store"], "McDonald’s via Foodora")
+        self.assertEqual(result["total_minor"], 622)
+        self.assertEqual([item["line_total_minor"] for item in result["items"]], [622])
+
     def test_empty_input_does_not_invent_data(self):
         result = parse_receipt({"lines": []})
         self.assertEqual(result["items"], [])

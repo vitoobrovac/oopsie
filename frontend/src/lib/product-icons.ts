@@ -1,6 +1,14 @@
 import { searchText } from "./receipts";
 
 const icons: [RegExp, string][] = [
+  [/\b(?:zinger|burger|chicken sandwich|hot chicken sandwich)\b/, "🍔"],
+  [/\b(?:fries|pommes)\b/, "🍟"],
+  [/\b(?:nuggets|hot wings)\b/, "🍗"],
+  [/\b(?:popcorn)\b/, "🍿"],
+  [/\b(?:cereal bar|cereal bars|chips|crisps)\b/, "🥨"],
+  [/\b(?:salami|pepperblock)\b/, "🥓"],
+  [/\b(?:garlic|knoblauch)\b/, "🧄"],
+  [/\b(?:cola|coke)\b/, "🥤"],
   [/\b(?:gigbag|gig bag|instrument case)\b/, "🎒"],
   [/\b(?:guitar stand|bass stand|instrument stand|gs 2000)\b/, "🧍"],
   [/\b(?:instrument cable|guitar cable|bass cable|audio cable)\b/, "🔌"],

@@ -5,7 +5,7 @@
     "type": "Toast bread",
     "category": "Bakery",
     "receipt_names": ["SBUDGET TOASTBROT"],
-    "receipt_keywords": ["TOASTBROT", "TOAST BREAD", "WHOLEMEAL BREAD", "BREAD", "KRUH"],
+    "receipt_keywords": ["TOASTBROT", "TOAST BREAD", "WHOLEMEAL BREAD", "BREAD", "KRUH", "SUPER SOFT SANDWICH"],
     "search_aliases": ["bread", "toast", "sandwich bread"]
   },
   {
@@ -46,7 +46,7 @@
     "display_name": "Drink syrup",
     "type": "Syrup concentrate",
     "category": "Drinks",
-    "receipt_keywords": ["MAUTNER SIRUP"],
+    "receipt_keywords": ["MAUTNER SIRUP", "MAUTNER 0,7L", "MAUTNER 0, 7L"],
     "search_aliases": ["syrup", "cordial"]
   },
   {
@@ -296,5 +296,197 @@
     "category": "Music & instruments",
     "receipt_keywords": ["INSTRUMENT CABLE", "GUITAR CABLE", "BASS CABLE"],
     "search_aliases": ["cable", "audio cable"]
+  },
+  {
+    "id": "pepper-salami",
+    "display_name": "Pepper-crusted salami",
+    "type": "Pepper-crusted salami",
+    "category": "Meat",
+    "receipt_keywords": ["PFEFFERBLOCK", "PFEFFER BLOCK"],
+    "search_aliases": ["salami", "pepper salami"]
+  },
+  {
+    "id": "pickled-peppers",
+    "display_name": "Pickled peppers",
+    "type": "Pickled peppers",
+    "category": "Vegetables",
+    "receipt_keywords": ["PFEFFERONI BUNT", "SPAR PFEFFERONI", "PICKLED PEPPERS"],
+    "search_aliases": ["pfefferoni", "peppers"]
+  },
+  {
+    "id": "chocolate-peanuts",
+    "display_name": "Peanut M&M’s",
+    "type": "Peanut M&M’s",
+    "category": "Snacks",
+    "receipt_keywords": ["M M S ERDNUSS", "M S ERDNUSS", "M M PEANUT"],
+    "search_aliases": ["peanut", "chocolate"]
+  },
+  {
+    "id": "popcorn",
+    "display_name": "Popcorn",
+    "type": "Popcorn",
+    "category": "Snacks",
+    "receipt_keywords": ["POPCORN", "POPCORN MAIS"],
+    "search_aliases": ["microwave popcorn"]
+  },
+  {
+    "id": "potato-chips",
+    "display_name": "Potato chips",
+    "type": "Potato chips",
+    "category": "Snacks",
+    "receipt_keywords": ["RIFFELS CHILI", "PRINGLES", "POTATO CHIPS", "KARTOFFELCHIPS"],
+    "search_aliases": ["crisps", "chips"]
+  },
+  {
+    "id": "tortilla-chips",
+    "display_name": "Tortilla chips",
+    "type": "Tortilla chips",
+    "category": "Snacks",
+    "receipt_keywords": ["CHIO TORTILLA", "TORTILLA CHIPS", "TORTILLA CHILI", "NACHO CHIPS"],
+    "search_aliases": ["nachos", "chips"]
+  },
+  {
+    "id": "salami-sticks",
+    "display_name": "Salami sticks",
+    "type": "Salami sticks",
+    "category": "Meat",
+    "receipt_keywords": ["SALANETTIS", "SALLANETTIS", "SALAMI STICKS"],
+    "search_aliases": ["salami"]
+  },
+  {
+    "id": "cereal-bars",
+    "display_name": "Cereal bars",
+    "type": "Cereal bars",
+    "category": "Snacks",
+    "receipt_keywords": ["CORNY", "MUESLIRIEGEL", "MÜSLIRIEGEL", "CEREAL BAR", "GRANOLA BAR"],
+    "search_aliases": ["granola bar", "snack bar"]
+  },
+  {
+    "id": "gouda",
+    "display_name": "Gouda cheese",
+    "type": "Gouda cheese",
+    "category": "Dairy",
+    "receipt_keywords": ["GOUDASCHEIB", "GOUDA", "GOUDA CHEESE"],
+    "search_aliases": ["cheese", "gouda"]
+  },
+  {
+    "id": "garlic",
+    "display_name": "Garlic",
+    "type": "Garlic",
+    "category": "Vegetables",
+    "receipt_keywords": ["BIO KNOBL", "BIOKNOBL", "KNOBLAUCH", "GARLIC"],
+    "search_aliases": ["garlic cloves"]
+  },
+  {
+    "id": "hot-wings-box",
+    "display_name": "Hot Wings Box",
+    "type": "Hot Wings Box",
+    "category": "Dining out",
+    "receipt_keywords": ["HOT WINGS BOX", "LOT WINGS BOX", "HOT WINGS"],
+    "search_aliases": ["wings", "chicken wings"]
+  },
+  {
+    "id": "zinger-burger",
+    "display_name": "Zinger burger",
+    "type": "Zinger burger",
+    "category": "Dining out",
+    "receipt_keywords": ["HOT ZINGER BURGER", "ZINGER BURGER"],
+    "search_aliases": ["chicken burger", "zinger"]
+  },
+  {
+    "id": "hot-chicken-sandwich",
+    "display_name": "Hot Chicken sandwich",
+    "type": "Hot Chicken sandwich",
+    "category": "Dining out",
+    "receipt_keywords": ["HOT CHICKEN", "HOTCHICKENM5"],
+    "search_aliases": ["hot chicken", "chicken sandwich"]
+  },
+  {
+    "id": "fries",
+    "display_name": "Fries",
+    "type": "Fries",
+    "category": "Dining out",
+    "receipt_keywords": ["POMMES", "FRENCH FRIES", "FRIES"],
+    "search_aliases": ["french fries", "pommes"]
+  },
+  {
+    "id": "nuggets-six",
+    "display_name": "Chicken nuggets (6 pieces)",
+    "type": "Chicken nuggets (6 pieces)",
+    "category": "Dining out",
+    "receipt_keywords": ["6ER MCNUGGETS", "6ER GARNUGG", "BER GARNUGG", "MCNUGGETS", "CHICKEN NUGGETS"],
+    "search_aliases": ["nuggets"]
+  },
+  {
+    "id": "cola",
+    "display_name": "Cola",
+    "type": "Cola",
+    "category": "Drinks",
+    "receipt_keywords": ["COCA COLA", "COKE", "COLA"],
+    "search_aliases": ["coke", "soft drink"]
+  },
+  {
+    "id": "cola-zero",
+    "display_name": "Cola Zero",
+    "type": "Cola Zero",
+    "category": "Drinks",
+    "receipt_keywords": ["COCA COLA ZERO", "COKE ZERO", "COLA ZERO"],
+    "search_aliases": ["zero", "soft drink"]
+  },
+  {
+    "id": "sour-cream-dip",
+    "display_name": "Sour cream dip",
+    "type": "Sour cream dip",
+    "category": "Dining out",
+    "receipt_keywords": ["SOUR CR DIP", "SOUR CREAM DIP"],
+    "search_aliases": ["sour cream", "dip"]
+  },
+  {
+    "id": "lingonberry-sauce",
+    "display_name": "Lingonberry sauce",
+    "type": "Lingonberry sauce",
+    "category": "Dining out",
+    "receipt_keywords": ["PREISELB SA", "PREISELBEERSAUCE", "LINGONBERRY SAUCE"],
+    "search_aliases": ["lingonberry", "dip"]
+  },
+  {
+    "id": "oats",
+    "display_name": "Oats",
+    "type": "Oats",
+    "category": "Pantry",
+    "receipt_keywords": ["HAFERFLOCKEN", "ROLLED OATS", "PORRIDGE OATS"],
+    "search_aliases": ["porridge"]
+  },
+  {
+    "id": "flour",
+    "display_name": "Flour",
+    "type": "Flour",
+    "category": "Pantry",
+    "receipt_keywords": ["WEIZENMEHL", "WHEAT FLOUR", "FLOUR"],
+    "search_aliases": ["baking"]
+  },
+  {
+    "id": "butter",
+    "display_name": "Butter",
+    "type": "Butter",
+    "category": "Dairy",
+    "receipt_keywords": ["BUTTER", "TEEBUTTER"],
+    "search_aliases": []
+  },
+  {
+    "id": "cucumbers",
+    "display_name": "Cucumbers",
+    "type": "Cucumbers",
+    "category": "Vegetables",
+    "receipt_keywords": ["GURKE", "GURKEN", "CUCUMBER", "CUCUMBERS"],
+    "search_aliases": ["cucumber"]
+  },
+  {
+    "id": "potatoes",
+    "display_name": "Potatoes",
+    "type": "Potatoes",
+    "category": "Vegetables",
+    "receipt_keywords": ["KARTOFFEL", "KARTOFFELN", "ERDÄPFEL", "POTATOES"],
+    "search_aliases": ["potato"]
   }
 ]

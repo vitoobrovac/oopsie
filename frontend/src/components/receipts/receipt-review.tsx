@@ -7,6 +7,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { Icon } from "@/components/layout/icon";
 import { dismissModal, Modal } from "@/components/layout/modal";
 import { ScanProgress } from "./scan-progress";
+import { scanReceipt, scanStages, type ScanStage } from "@/lib/receipt-scan";
 import { accountRequest, useAccount } from "@/components/account/account-provider";
 import { formatMinor } from "@/lib/finance-format";
 import { isDate, parseAmount } from "@/lib/ledger";
@@ -91,6 +92,8 @@ export function ReceiptReview() {
   const [lines, setLines] = useState<LineEdit[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [batch, setBatch] = useState<{ number: number; count: number; remaining: ReceiptDraft[] } | null>(null);
+  const [scanStage, setScanStage] = useState<ScanStage>("upload");
   const [busy, setBusy] = useState<"scan" | "save" | null>(null);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
@@ -142,17 +145,47 @@ export function ReceiptReview() {
     setError("");
     if (file.size > 10 * 1024 * 1024) return setError("Choose a photo under 10 MB.");
     setPreview(URL.createObjectURL(file));
+    setScanStage("upload");
     setBusy("scan");
     try {
-      const draft = await accountRequest<ReceiptDraft>(session, "receipts/analyze", {
-        method: "POST", body: file, headers: { "Content-Type": file.type || "application/octet-stream" },
+      const draft = await scanReceipt(session, file, (stage) => {
+        setScanStage((current) => scanStages[stage].percent > scanStages[current].percent ? stage : current);
       });
+      setScanStage("ready");
+      const remaining = draft.additional_receipts ?? [];
+      setBatch(remaining.length ? { number: 1, count: remaining.length + 1, remaining } : null);
       populate(draft);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not scan the photo.");
     } finally {
       setBusy(null);
     }
+  }
+
+  function reviewNextReceipt() {
+    const next = batch?.remaining[0];
+    if (!batch || !next) return false;
+    setError("");
+    setBatch({ ...batch, number: batch.number + 1, remaining: batch.remaining.slice(1) });
+    populate(next);
+    return true;
+  }
+
+  function resetDraft() {
+    setEditing(false);
+    setReceiptId(null);
+    setPreview("");
+    setEditHeader(false);
+    setStore("");
+    setDay("");
+    setCurrency("");
+    setQuoteState(null);
+    setTotal("");
+    setLines([]);
+    setWarnings([]);
+    setError("");
+    setBatch(null);
+    setScanStage("upload");
   }
 
   function updateLine(key: string, patch: Partial<LineEdit>) {
@@ -199,13 +232,17 @@ export function ReceiptReview() {
     }
     setBusy("save");
     try {
-      const saved = await accountRequest<{ id: string }>(session, "receipts", {
+      await accountRequest(session, "receipts", {
         method: "POST", body: JSON.stringify({ id: receiptId, store: store.trim(), date: day, currency, rate_date: quote?.rate_date, total_minor: printedTotal, lines: cleanLines }),
       });
       refreshLedger();
-      router.replace("/receipts?receipt=" + saved.id);
+      if (!reviewNextReceipt()) {
+        resetDraft();
+        router.replace("/receipts");
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not save the receipt.");
+    } finally {
       setBusy(null);
     }
   }
@@ -238,7 +275,7 @@ export function ReceiptReview() {
                 onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; void scan(file); }} />
             </label>
           </fieldset>
-          {busy === "scan" && <ScanProgress />}
+          {busy === "scan" && <ScanProgress stage={scanStage} />}
           <button type="button" disabled={Boolean(busy)} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[#31533c] underline"
             onClick={() => { setError(""); populate({ store: null, date: localToday(), currency: "EUR", total_minor: null, lines: [], warnings: [] }); }}>
             <Icon name="pencil" className="size-4 shrink-0" />
@@ -255,9 +292,7 @@ export function ReceiptReview() {
               <div className="mt-4 flex justify-end gap-2">
                 <button type="button" autoFocus className={secondary} onClick={dismissModal}>Keep editing</button>
                 <button type="button" className={primary} onClick={(event) => {
-                  setEditing(false);
-                  setPreview("");
-                  setError("");
+                  resetDraft();
                   dismissModal(event);
                 }}>Discard draft</button>
               </div>
@@ -266,6 +301,7 @@ export function ReceiptReview() {
 
       {editing && (
         <form onSubmit={save} className="mt-5 space-y-4">
+          {preview && scanStage === "ready" && <p role="status" className="text-xs font-semibold text-[#31533c]">100% · Scan complete{batch ? " · Receipt " + batch.number + " of " + batch.count : ""}</p>}
           {preview && (
             <details className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
               <summary className="cursor-pointer text-sm font-semibold">View original photo</summary>
@@ -327,6 +363,7 @@ export function ReceiptReview() {
               {printedTotal && calculated !== printedTotal ? <p className="text-xs text-red-800">Printed total: {formatDraftAmount(printedTotal, currency)} · Check line amounts</p> : null}
             </div>
             <button type="submit" className={primary} disabled={Boolean(busy) || !supported || (needsRate && !quote)}>{busy === "save" ? "Saving…" : "Confirm and save"}</button>
+            {Boolean(batch?.remaining.length) && <button type="button" disabled={Boolean(busy)} className="min-h-11 px-2 text-xs font-semibold text-[#31533c] underline" onClick={reviewNextReceipt}>Skip to next receipt</button>}
             {error && <p role="status" className="w-full text-xs text-red-800">{error}</p>}
           </div>
         </form>

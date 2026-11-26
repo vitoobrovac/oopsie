@@ -10,6 +10,8 @@ Install the updated `backend/requirements.txt` and restart FastAPI. The API runs
 
 In oopsie, open **Receipts → Scan a receipt**. Upload a photo, review the draft and select **Confirm and save**. Keep **Remember this name and category** checked for corrections you want reused for the same printed product label at that store. The confirmed receipt and its ledger expense are saved together. Migration 006 categorizes new receipts with exclusively music gear product lines as Music & instruments in the ledger and charts.
 
+While scanning, the progress bar reports completed pipeline stages. It reaches 100% once an editable draft is ready. If a sideways photo has clearly separated receipt headings, oopsie can read the slips separately and lets you review and save each one. Unreadable prices stay flagged for review. Saving the final receipt closes the review and returns to the receipt list. The next scan starts with a blank form.
+
 Recognized lines show a compact summary. The scanner separates column headers from product rows, checks the sum against the printed total, and uses a shared catalog to suggest names and categories. Select the receipt's currency when it differs from EUR. oopsie shows the latest published European Central Bank reference rate and the converted total, then saves reconciled EUR amounts. A bare dollar symbol requires a currency choice. The original amounts are shown in the draft and the saved receipt contains EUR amounts. Tap **Edit** when a suggestion is wrong. When a label is unrecognized, provide a product name and category. Oopsie remembers the answer for the signed-in account and the same store on confirmation.
 
 For a phone, open an accessible app URL over HTTPS and allow the corresponding return URL in Supabase Auth. By default the frontend forwards API requests through its own origin. When deploying separately, set `LUMA_API_PROXY_URL` on the frontend to the backend address, or configure the public API URL and matching CORS origin described below.
@@ -48,6 +50,14 @@ When deploying the API, set `LUMA_WEB_ORIGIN` to the frontend's exact origin. Se
 ## Profile and display settings
 
 In Settings, save a display name to see it on Overview and in the Account menu. The display name is stored with the signed-in Supabase account. Save a different reporting start day to change the monthly periods used by budgets and reports. The Reduce motion toggle saves in the current browser and switches the wallet and transition animations off. The app also respects the device's reduced-motion preference.
+
+The **First day of the week** setting defaults to Monday and is saved with the Supabase account. The Overview’s weekly chart covers the current week from the selected weekday through today. In Receipts, select the same receipt again or use **Close receipt** to close its details.
+
+In **Products**, select an item to compare average prices across stores. Each chart compares the same unit, and the average uses the total price divided by the total quantity at that store. If quantities are missing and there is no unit comparison, the chart can compare the average amount per receipt line and labels it accordingly.
+
+## Guided Oopsie AI
+
+Open **Insights → Ask Oopsie AI**. The assistant calculates answers in the browser from the signed-in account’s existing ledger and receipts. Savings targets, spending reduction examples, summaries, and period comparisons use the reporting period in Settings. The receipt-specific answer unlocks after ten saved receipts. The app counts all saved receipts, including manual entries. The guide requires no model, external AI requests, or database migration.
 
 ## Enable Oopsie Hunt
 

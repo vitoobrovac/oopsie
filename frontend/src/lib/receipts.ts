@@ -17,6 +17,7 @@ export type ReceiptDraft = {
   total_minor: number | null;
   lines: (ReceiptLine & { review: boolean })[];
   warnings: string[];
+  additional_receipts?: ReceiptDraft[];
 };
 
 export type Receipt = {

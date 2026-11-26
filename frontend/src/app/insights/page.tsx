@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { FeaturePage } from "@/components/features/feature-page";
+import { GuidedInsights } from "@/components/features/guided-insights";
 import { PageShell } from "@/components/layout/page-shell";
 import { CategoryChart, MonthlyChart } from "@/components/dashboard/finance-charts";
 import { formatMinor, formatReceiptDate } from "@/lib/finance-format";
@@ -60,7 +61,8 @@ function Insights() {
   const weekdayMax = Math.max(1, ...weekdayTotals);
 
   return (
-    <FeaturePage title="Insights" description="See what you spent the most on and how your spending changes." primaryAction="Ask oopsie AI" cards={[]}>
+    <FeaturePage title="Insights" description="See what you spent the most on and how your spending changes."
+      action={<GuidedInsights report={report} today={today} records={records} receiptError={error} retryReceipts={retry} />} cards={[]}>
       <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
         Insight period
         <select value={range} onChange={(event) => setRange(event.target.value as Range)}

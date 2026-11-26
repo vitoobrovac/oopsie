@@ -10,9 +10,10 @@ const day = 86_400_000;
 const shortDate = new Intl.DateTimeFormat("en-IE", { month: "short", day: "numeric", timeZone: "UTC" });
 const weekday = new Intl.DateTimeFormat("en-IE", { weekday: "short", timeZone: "UTC" });
 
-function makePoints(rows: ManualEntry[], today: string, periodStart: string, range: Range) {
+function makePoints(rows: ManualEntry[], today: string, periodStart: string, range: Range, weekStartDay: number) {
   const end = Date.parse(today);
-  const start = range === "Week" ? end - 6 * day
+  const daysSinceWeekStart = (new Date(end).getUTCDay() + 7 - weekStartDay) % 7;
+  const start = range === "Week" ? end - daysSinceWeekStart * day
     : Date.parse(range === "Month" ? periodStart : today.slice(0, 4) + "-01-01");
   const buckets = new Map<string, { label: string; description: string; spending: number; income: number }>();
   const key = (date: number) => range === "Year" ? new Date(date).toISOString().slice(0, 7)
@@ -37,10 +38,12 @@ function makePoints(rows: ManualEntry[], today: string, periodStart: string, ran
   return [...buckets.values()];
 }
 
-export function CashFlowChart({ rows, today, periodStart }: { rows: ManualEntry[]; today: string; periodStart: string }) {
+export function CashFlowChart({ rows, today, periodStart, weekStartDay }: {
+  rows: ManualEntry[]; today: string; periodStart: string; weekStartDay: number;
+}) {
   const [range, setRange] = useState<Range>("Week");
   const [selected, setSelected] = useState<number | null>(null);
-  const points = makePoints(rows, today, periodStart, range);
+  const points = makePoints(rows, today, periodStart, range, weekStartDay);
   const peak = Math.max(0, ...points.map(({ spending, income }) => Math.max(spending, income)));
   const scale = peak ? Math.max(1, 10 ** Math.floor(Math.log10(peak / 2))) : 1000;
   const top = peak ? Math.ceil(peak / (scale * 2)) * scale * 2 : 2000;

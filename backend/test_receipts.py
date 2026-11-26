@@ -1,3 +1,4 @@
+import json
 import unittest
 from datetime import date
 from decimal import Decimal
@@ -48,6 +49,29 @@ class ReceiptApiTest(unittest.TestCase):
         self.assertEqual(line["category"], "Fresh fruit")
         self.assertEqual([call.args[1] for call in db.await_args_list], ["GET", "GET"])
         self.assertEqual(db.await_args_list[1].kwargs["params"]["store_key"], "eq.sample market")
+
+    def test_stream_reports_scan_stages_then_draft(self):
+        app.dependency_overrides[database] = lambda: httpx.AsyncClient(base_url="https://example.test/rest/v1/")
+        draft = {"store": "Sample Market", "lines": [{**PRODUCT, "review": False}]}
+
+        def analyze(image, on_stage):
+            self.assertEqual(image, b"sample")
+            for stage in ("preparing", "reading", "parsing", "matching"):
+                on_stage(stage)
+            return draft
+
+        with patch("main.analyze", side_effect=analyze), patch(
+            "main.request", new=AsyncMock(side_effect=[{"id": "test"}, []])
+        ), TestClient(app) as client:
+            with client.stream("POST", "/v1/receipts/analyze", content=b"sample",
+                               headers={"Content-Type": "image/png", "Accept": "application/x-ndjson"}) as response:
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.headers["content-type"].startswith("application/x-ndjson"))
+                events = [json.loads(line) for line in response.iter_lines()]
+
+        self.assertEqual([event["stage"] for event in events if event["type"] == "stage"],
+                         ["preparing", "reading", "parsing", "matching", "checking"])
+        self.assertEqual(events[-1], {"type": "result", "draft": draft})
 
     def test_save_reconciles_and_uses_one_rpc(self):
         app.dependency_overrides[database] = lambda: None
