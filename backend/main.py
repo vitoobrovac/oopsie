@@ -18,6 +18,7 @@ from pydantic import BaseModel, ValidationError, ConfigDict, Field, StringConstr
 
 from exchange_rates import Currency, RateUnavailable, convert_receipt, latest_rate
 from receipt_pipeline import ReceiptRecognitionError, analyze
+from receipt_categories import EXPENSE_CATEGORIES, receipt_category
 
 app = FastAPI(title="oopsie ledger API")
 app.add_middleware(
@@ -141,8 +142,16 @@ class ReceiptInput(BaseModel):
     date: Date = Field(ge=Date(1900, 1, 1))
     currency: Currency
     rate_date: Date | None = None
+    spending_category: str | None = None
     total_minor: int = Field(strict=True, ge=1, le=99999999999)
     lines: list[ReceiptLine] = Field(min_length=1, max_length=300)
+
+    @field_validator("spending_category")
+    @classmethod
+    def validate_spending_category(cls, value):
+        if value is not None and value not in EXPENSE_CATEGORIES:
+            raise ValueError("Choose a supported spending category.")
+        return value
 
     @model_validator(mode="after")
     def reconcile(self):
@@ -392,6 +401,7 @@ async def apply_remembered_products(client: httpx.AsyncClient, draft: dict):
             saved = known.get(receipt_key(line["receipt_name"])) if line["kind"] == "product" else None
             if saved:
                 line.update(display_name=saved["display_name"], category=saved["category"], review=False)
+        receipt["spending_category"] = receipt_category(receipt["lines"])
     return draft
 
 
@@ -495,6 +505,7 @@ async def save_receipt(receipt: ReceiptInput, client: Database):
         for line, amount in zip(lines, amounts, strict=True):
             line["amount_minor"] = amount
 
+    lines[0]["spending_category"] = receipt.spending_category or receipt_category(lines)
     receipt_id = await request(client, "POST", "rpc/save_receipt", json={
         "receipt_id": str(receipt.id), "merchant": receipt.store, "receipt_date": receipt.date.isoformat(),
         "total": total, "lines": lines,

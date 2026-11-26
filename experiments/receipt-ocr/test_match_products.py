@@ -32,6 +32,19 @@ class ProductMatchingTest(unittest.TestCase):
                 self.assertEqual((match["display_name"], match["category"]), expected)
                 self.assertEqual(match["status"], "suggested")
 
+    def test_invoice_aliases_match_similar_items_and_keep_details(self):
+        for raw, name, category in [
+            ("Premium EURODIZEL B7", "Diesel", "Transport"),
+            ("Obostrano ljepljiva traka extra na tekstilu 25 m", "Double-sided tape", "Tools"),
+            ("3D Weihnachtskarten, Pop-up set", "Christmas card", "Shopping"),
+            ("Annual web hosting plan", "Web hosting", "Subscriptions"),
+            ("Regional train ticket – one way", "Train ticket", "Travel"),
+            ("Drill bit set 6 mm", "Drill bit", "Tools"),
+        ]:
+            with self.subTest(raw=raw):
+                match = matcher["classify"](raw, self.catalog)
+                self.assertEqual((match["display_name"], match["category"]), (name, category))
+
     def test_music_gear_names_are_specific_and_share_a_category(self):
         for raw, expected in [
             ("1x Yamaha TRBX 174 OVS", "Bass guitar"),

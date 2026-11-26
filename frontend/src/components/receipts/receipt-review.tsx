@@ -10,7 +10,7 @@ import { ScanProgress } from "./scan-progress";
 import { needsScanFeedback, ReceiptRecognitionError, scanReceipt, scanStages, type ScanStage } from "@/lib/receipt-scan";
 import { accountRequest, supabase, useAccount } from "@/components/account/account-provider";
 import { formatMinor } from "@/lib/finance-format";
-import { isDate, parseAmount } from "@/lib/ledger";
+import { expenseCategories, isDate, parseAmount } from "@/lib/ledger";
 import { localToday } from "@/lib/use-ledger";
 import { productEmoji } from "@/lib/product-icons";
 import { newReceiptId, type ReceiptDraft, type ReceiptLine } from "@/lib/receipts";
@@ -92,6 +92,8 @@ export function ReceiptReview() {
   const [store, setStore] = useState("");
   const [day, setDay] = useState("");
   const [currency, setCurrency] = useState("");
+  const [categoryOverride, setCategoryOverride] = useState("");
+  const [suggestedCategory, setSuggestedCategory] = useState("");
   const [quoteState, setQuoteState] = useState<QuoteState | null>(null);
   const [rateRefresh, setRateRefresh] = useState(0);
   const [total, setTotal] = useState("");
@@ -136,6 +138,8 @@ export function ReceiptReview() {
     setStore(draft.store ?? "");
     setDay(draft.date ?? "");
     setCurrency(draft.currency ?? "");
+    setCategoryOverride("");
+    setSuggestedCategory(draft.spending_category ?? "");
     setQuoteState(null);
     setTotal(moneyInput(draft.total_minor));
     setWarnings(draft.warnings);
@@ -214,6 +218,8 @@ export function ReceiptReview() {
     setStore("");
     setDay("");
     setCurrency("");
+    setCategoryOverride("");
+    setSuggestedCategory("");
     setQuoteState(null);
     setTotal("");
     setLines([]);
@@ -270,7 +276,8 @@ export function ReceiptReview() {
     setBusy("save");
     try {
       await accountRequest(session, "receipts", {
-        method: "POST", body: JSON.stringify({ id: receiptId, store: store.trim(), date: day, currency, rate_date: quote?.rate_date, total_minor: printedTotal, lines: cleanLines }),
+        method: "POST", body: JSON.stringify({ id: receiptId, store: store.trim(), date: day, currency, rate_date: quote?.rate_date,
+          total_minor: printedTotal, spending_category: categoryOverride || undefined, lines: cleanLines }),
       });
       refreshLedger();
       if (!reviewNextReceipt()) {
@@ -370,7 +377,9 @@ export function ReceiptReview() {
           <fieldset disabled={Boolean(busy)} className="space-y-4">
             <section className="rounded-2xl border border-[#e4e9e2] bg-white p-3 sm:p-4">
               <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0"><p className="break-words text-sm font-semibold">{store || "Store needed"}</p><p className="text-xs text-[#59685e]">{day || "Date needed"} · {printedTotal === null ? "Total needed" : formatDraftAmount(printedTotal, currency)}</p></div>
+                <div className="min-w-0"><p className="break-words text-sm font-semibold">{store || "Store needed"}</p><p className="text-xs text-[#59685e]">{day || "Date needed"} · {printedTotal === null ? "Total needed" : formatDraftAmount(printedTotal, currency)}</p>
+                  {(categoryOverride || suggestedCategory) && <p className="mt-0.5 text-xs font-medium text-[#31533c]">{categoryOverride || suggestedCategory}</p>}
+                </div>
                 <button type="button" aria-expanded={editHeader} onClick={() => setEditHeader(!editHeader)} className="min-h-11 shrink-0 px-2 text-xs font-semibold text-[#31533c] underline">{editHeader ? "Hide details" : "Edit receipt details"}</button>
               </div>
               {editHeader && <div className="mt-2 grid grid-cols-2 gap-2">
@@ -388,6 +397,12 @@ export function ReceiptReview() {
                   {Object.entries(currencies).map(([code, name]) => <option value={code} key={code}>{code} · {name}</option>)}
                 </select>
               </label>
+              <label className="col-span-2 text-sm font-medium">Spending category
+                <select className={input} value={categoryOverride} onChange={(event) => setCategoryOverride(event.target.value)}>
+                  <option value="">Automatic{suggestedCategory ? " · " + suggestedCategory : ""}</option>
+                  {expenseCategories.map(([label, value]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
               </div>}
               {needsRate && <div role="status" className="mt-2 text-xs text-[#59685e]">
                 {quote ? <p>ECB rate · {quote.rate_date} · €1 = {quote.units_per_eur} {currency}</p>
@@ -395,7 +410,7 @@ export function ReceiptReview() {
                 {(quote || rateState?.error) && <button type="button" className="min-h-10 font-semibold text-[#31533c] underline" onClick={refreshRate}>Refresh rate</button>}
               </div>}
             </section>
-            <datalist id="receipt-categories">{["Bakery", "Fruit", "Vegetables", "Dairy desserts", "Dairy", "Drinks", "Eggs", "Meat", "Fish & seafood", "Pantry", "Music & instruments", "Groceries", "Other"].map((value) => <option value={value} key={value} />)}</datalist>
+            <datalist id="receipt-categories">{["Bakery", "Fruit", "Vegetables", "Dairy desserts", "Dairy", "Drinks", "Eggs", "Meat", "Fish & seafood", "Pantry", ...expenseCategories.map(([, value]) => value)].map((value) => <option value={value} key={value} />)}</datalist>
             <section aria-label="Receipt items" className="overflow-hidden rounded-2xl border border-[#e4e9e2] bg-white">
               <div className="flex justify-between gap-2 border-b border-[#e4e9e2] px-3 py-2 text-xs font-semibold sm:px-4">
                 <span>{lines.length} {lines.length === 1 ? "line" : "lines"}</span>

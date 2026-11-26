@@ -8,6 +8,7 @@ from io import BytesIO
 from math import ceil
 from pathlib import Path
 from statistics import median
+from receipt_categories import receipt_category
 
 LAB = Path(__file__).resolve().parents[1] / "experiments" / "receipt-ocr"
 SCAN_SIDE = 1800
@@ -150,7 +151,86 @@ def reread_delivery_prices(image: bytes, ocr: dict, draft: dict, parse, recogniz
     return draft
 
 
+def rotate_photo(image: bytes, rotation) -> bytes:
+    from PIL import Image
+
+    with Image.open(BytesIO(image)) as source:
+        buffer = BytesIO()
+        source.transpose(rotation).save(buffer, format="JPEG", quality=95)
+        return buffer.getvalue()
+
+
+def draft_quality(draft: dict) -> tuple:
+    priced = sum(item["line_total_minor"] is not None for item in draft["items"])
+    return (
+        bool(priced and draft["reconciliation"]["matches_printed_total"]),
+        bool(priced and draft["total_minor"]),
+        sum(bool(draft[field]) for field in ("store", "date", "currency")),
+        priced,
+    )
+
+
+def zoom_text(image: bytes, rect, recognize) -> list[dict]:
+    from PIL import Image, ImageOps
+
+    with Image.open(BytesIO(image)) as source:
+        left, top, right, bottom = rect(source.width, source.height)
+        if right <= left or bottom <= top:
+            return []
+        strip = ImageOps.autocontrast(source.crop((left, top, right, bottom)).convert("L"), cutoff=1)
+        buffer = BytesIO()
+        strip.resize((strip.width * 2, strip.height * 2), Image.Resampling.LANCZOS).save(buffer, format="PNG")
+    return [
+        {**line, "polygon": [[x / 2 + left, y / 2 + top] for x, y in line["polygon"]]}
+        for line in recognize(buffer.getvalue())["lines"] if line["text"].strip()
+    ]
+
+
+def reread_invoice_date(image: bytes, ocr: dict, draft: dict, parse, recognize) -> dict:
+    if draft["date"] or not draft["total_minor"]:
+        return draft
+    due = next((line for line in ocr["lines"] if re.match(r"datum dosp|rok dosp|date due", line["text"], re.I)), None)
+    if not due:
+        return draft
+    left, top, _, bottom = bounds(due)
+    height = max(12, bottom - top)
+    zoomed = zoom_text(image, lambda width, length: (
+        max(0, round(left - height)), max(0, round(top - height * 3)),
+        width, min(length, round(bottom + height * 2)),
+    ), recognize)
+    updated = parse({**ocr, "lines": ocr["lines"] + zoomed})
+    if updated["date"]:
+        warnings = [text for text in draft["warnings"] if text != "The invoice date needs review."]
+        return {**draft, "date": updated["date"], "time": updated["time"], "warnings": warnings}
+    return draft
+
+
+def reread_invoice_names(image: bytes, ocr: dict, draft: dict, enrich, catalog, recognize) -> dict:
+    """Zoom the description column on dense invoices and re-read uncertain item names."""
+    enriched = enrich(draft, catalog)
+    if not any(re.search(r"naz[il]v\s*(?:artik|proizv|robe)|vrsta robe", line["text"], re.I) for line in ocr["lines"]):
+        return enriched
+    uncertain = [item for item in enriched["items"] if "source_y" in item and item["product"]["status"] == "needs_review"]
+    if not uncertain:
+        return enriched
+    height = max(10, median(bounds(line)[3] - bounds(line)[1] for line in ocr["lines"]))
+    top = max(0, round(min(item["source_y"] for item in uncertain) - height * 1.35))
+    bottom = round(max(item["source_y"] for item in uncertain) + height * 1.35)
+    zoomed = zoom_text(image, lambda width, length: (0, top, round(width * .62), min(bottom, length)), recognize)
+    replacement = enrich({"items": [{"name": line["text"]} for line in zoomed]}, catalog)["items"]
+    for item in uncertain:
+        near = [(line, candidate) for line, candidate in zip(zoomed, replacement, strict=True)
+                if abs(center(line, 1) - item["source_y"]) <= height * .58
+                and candidate["product"]["status"] == "suggested"]
+        if near:
+            line, candidate = min(near, key=lambda pair: abs(center(pair[0], 1) - item["source_y"]))
+            item.update(name=line["text"][:240], product=candidate["product"])
+    return enriched
+
+
 def analyze(image: bytes, on_stage: Callable[[str], None] | None = None) -> dict:
+    from PIL import Image
+
     def stage(name: str) -> None:
         if on_stage:
             on_stage(name)
@@ -169,9 +249,23 @@ def analyze(image: bytes, on_stage: Callable[[str], None] | None = None) -> dict
     else:
         scans = [(normalized, ocr)]
     stage("parsing")
-    parsed = [reread_delivery_prices(picture, reading, parse(reading), parse, recognize_line) for picture, reading in scans]
+    parsed = []
+    for picture, reading in scans:
+        draft = parse(reading)
+        if crops and not draft_quality(draft)[0]:
+            other = rotate_photo(picture, Image.Transpose.ROTATE_180)
+            other_reading = recognize(other)
+            other_draft = parse(other_reading)
+            if draft_quality(other_draft) > draft_quality(draft):
+                picture, reading, draft = other, other_reading, other_draft
+        draft = reread_delivery_prices(picture, reading, draft, parse, recognize_line)
+        draft = reread_invoice_date(picture, reading, draft, parse, recognize)
+        parsed.append((picture, reading, draft))
     stage("matching")
-    drafts = [format_draft(enrich(draft, catalog)) for draft in parsed if draft["items"] or draft["total_minor"] is not None]
+    drafts = [
+        format_draft(reread_invoice_names(picture, reading, draft, enrich, catalog, recognize))
+        for picture, reading, draft in parsed if draft["items"] or draft["total_minor"] is not None
+    ]
     if not drafts:
         raise ReceiptRecognitionError("No receipt items could be read. Try a closer photo of one receipt.")
     first, *additional = drafts
@@ -188,15 +282,15 @@ def format_draft(draft: dict) -> dict:
         for row in records:
             product = row.get("product", {})
             pack = row.get("package_size")
-            quantity, unit = row.get("quantity"), "unit"
+            quantity, unit = row.get("quantity"), row.get("quantity_unit", "unit")
             if quantity is not None and pack:
                 quantity = round(quantity * pack["value"], 3)
                 unit = pack["unit"]
             lines.append({
                 "kind": row.get("type", kind),
                 "receipt_name": row["name"],
-                "display_name": product.get("display_name", row["name"]),
-                "category": product.get("category") or "",
+                "display_name": product.get("display_name", row["name"])[:120],
+                "category": product.get("category") or row.get("spending_category") or "",
                 "aliases": product.get("search_aliases", []),
                 "quantity": quantity,
                 "unit": unit,
@@ -206,4 +300,5 @@ def format_draft(draft: dict) -> dict:
     return {
         "store": draft["store"], "date": draft["date"], "currency": draft["currency"],
         "total_minor": draft["total_minor"], "lines": lines, "warnings": draft["warnings"],
+        "spending_category": receipt_category(lines),
     }

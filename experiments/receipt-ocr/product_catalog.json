@@ -488,5 +488,245 @@
     "category": "Vegetables",
     "receipt_keywords": ["KARTOFFEL", "KARTOFFELN", "ERDÄPFEL", "POTATOES"],
     "search_aliases": ["potato"]
+  },
+  {
+    "id": "craft-stencil",
+    "display_name": "Craft stencil",
+    "type": "Craft stencil",
+    "category": "Shopping",
+    "receipt_keywords": ["sablona", "sablone", "sablon", "sabloni", "sation za prozor", "stencil", "stencils", "weihnachtsschablone"],
+    "search_aliases": ["craft supplies", "template", "snow stencil"]
+  },
+  {
+    "id": "tree-ornaments",
+    "display_name": "Christmas tree ornaments",
+    "type": "Christmas tree ornaments",
+    "category": "Shopping",
+    "receipt_keywords": ["kuglice za bor", "christbaumkugeln", "christmas baubles", "baumkugeln"],
+    "search_aliases": ["decorations", "baubles"]
+  },
+  {
+    "id": "wooden-ornaments",
+    "display_name": "Wooden craft ornaments",
+    "type": "Wooden craft ornaments",
+    "category": "Shopping",
+    "receipt_keywords": ["holzanhanger", "holznan bemaln", "wooden ornament", "wooden ornaments", "christbaumschmuck zum bemalen", "wood slices for crafts"],
+    "search_aliases": ["wood decorations", "christmas ornaments"]
+  },
+  {
+    "id": "christmas-card",
+    "display_name": "Christmas card",
+    "type": "Christmas card",
+    "category": "Shopping",
+    "receipt_keywords": ["weihnachtskarte", "weihnachtskarten", "weihnahskarten", "merry christmas card", "christmas card", "christmas cards", "bozicna cestitka"],
+    "search_aliases": ["greeting card", "pop up card"]
+  },
+  {
+    "id": "christmas-stickers",
+    "display_name": "Christmas stickers",
+    "type": "Christmas stickers",
+    "category": "Shopping",
+    "receipt_keywords": ["sticker weihnachten", "weihnachtssticker", "christmas stickers", "weihnachtsaufkleber"],
+    "search_aliases": ["stickers", "craft supplies"]
+  },
+  {
+    "id": "shipping",
+    "display_name": "Shipping",
+    "type": "Shipping",
+    "category": "Other",
+    "receipt_keywords": ["shipping charge", "shipping fee", "versandkosten", "trosak dostave", "dpd gls dostavna", "delivery fee"],
+    "search_aliases": ["delivery", "postage"]
+  },
+  {
+    "id": "adhesive-tape",
+    "display_name": "Double-sided tape",
+    "type": "Double-sided tape",
+    "category": "Tools",
+    "receipt_keywords": ["obostrano ljepljiva traka", "obostrano ijepljiva traka", "double sided tape", "doppelseitiges klebeband"],
+    "search_aliases": ["adhesive tape", "tape"]
+  },
+  {
+    "id": "masking-tape",
+    "display_name": "Masking tape",
+    "type": "Masking tape",
+    "category": "Tools",
+    "receipt_keywords": ["krep traka", "masking tape", "malerkrepp", "kreppband"],
+    "search_aliases": ["tape", "protective tape"]
+  },
+  {
+    "id": "zipper-pull",
+    "display_name": "Zipper pull",
+    "type": "Zipper pull",
+    "category": "Shopping",
+    "receipt_keywords": ["kljucic za patentni zatvarac", "kljui za patentni zatvarac", "zipper pull", "reissverschluss schieber"],
+    "search_aliases": ["sewing", "slider"]
+  },
+  {
+    "id": "zipper",
+    "display_name": "Zipper",
+    "type": "Zipper",
+    "category": "Shopping",
+    "receipt_keywords": ["patentni zatvarac", "patentni zatvara", "patentni zatvarac metraza", "reissverschluss", "zipper", "zip fastener"],
+    "search_aliases": ["sewing", "fastener"]
+  },
+  {
+    "id": "instant-film",
+    "display_name": "Instant camera film",
+    "type": "Instant camera film",
+    "category": "Shopping",
+    "receipt_keywords": ["instax", "polaroid film", "instant film", "sofortbildfilm"],
+    "search_aliases": ["camera film", "instant photo paper"]
+  },
+  {
+    "id": "chatgpt",
+    "display_name": "ChatGPT Plus",
+    "type": "ChatGPT Plus",
+    "category": "Subscriptions",
+    "receipt_keywords": ["chatgpt plus", "chatgpt subscription"],
+    "search_aliases": ["openai", "software subscription"]
+  },
+  {
+    "id": "microsoft365",
+    "display_name": "Microsoft 365",
+    "type": "Microsoft 365",
+    "category": "Subscriptions",
+    "receipt_keywords": ["microsoft 365", "office 365"],
+    "search_aliases": ["office", "software subscription"]
+  },
+  {
+    "id": "domain",
+    "display_name": "Domain registration",
+    "type": "Domain registration",
+    "category": "Subscriptions",
+    "receipt_keywords": ["registracija naplatne", "registracija domene", "domain registration", "domain renewal", "domainregistrierung"],
+    "search_aliases": ["hosting", "web domain"]
+  },
+  {
+    "id": "hosting",
+    "display_name": "Web hosting",
+    "type": "Web hosting",
+    "category": "Subscriptions",
+    "receipt_keywords": ["web hosting", "hosting paket", "hosting plan", "webhosting"],
+    "search_aliases": ["hosting", "website subscription"]
+  },
+  {
+    "id": "meta-ads",
+    "display_name": "Meta ads",
+    "type": "Meta ads",
+    "category": "Business",
+    "receipt_keywords": ["meta ads", "facebook ads", "instagram ads"],
+    "search_aliases": ["advertising", "campaign"]
+  },
+  {
+    "id": "diesel",
+    "display_name": "Diesel",
+    "type": "Diesel",
+    "category": "Transport",
+    "receipt_keywords": ["eurodiesel", "eurodizel", "diesel", "dizel"],
+    "search_aliases": ["fuel", "gas station"]
+  },
+  {
+    "id": "petrol",
+    "display_name": "Petrol",
+    "type": "Petrol",
+    "category": "Transport",
+    "receipt_keywords": ["eurosuper", "unleaded petrol", "benzine", "bleifrei", "super 95", "petrol fuel"],
+    "search_aliases": ["fuel", "gasoline"]
+  },
+  {
+    "id": "ride",
+    "display_name": "Ride fare",
+    "type": "Ride fare",
+    "category": "Transport",
+    "receipt_keywords": ["cijena voznje", "cijena vonje", "ride fare", "uber ride", "taxi fare", "boltfahrt"],
+    "search_aliases": ["uber", "bolt", "taxi"]
+  },
+  {
+    "id": "kebab",
+    "display_name": "Kebab meal",
+    "type": "Kebab meal",
+    "category": "Dining out",
+    "receipt_keywords": ["kebab pita", "kebab wrap", "doner kebab", "kebab menu", "shish kebab"],
+    "search_aliases": ["takeaway", "street food"]
+  },
+  {
+    "id": "popcorn-kernels",
+    "display_name": "Popcorn kernels",
+    "type": "Popcorn kernels",
+    "category": "Pantry",
+    "receipt_keywords": ["kukuruz popcorn", "popcorn kernels", "puffmais"],
+    "search_aliases": ["corn", "popcorn"]
+  },
+  {
+    "id": "coconut-popcorn",
+    "display_name": "Coconut popcorn",
+    "type": "Coconut popcorn",
+    "category": "Snacks",
+    "receipt_keywords": ["popcorn kokosov", "coconut popcorn"],
+    "search_aliases": ["popcorn", "snack"]
+  },
+  {
+    "id": "train-ticket",
+    "display_name": "Train ticket",
+    "type": "Train ticket",
+    "category": "Travel",
+    "receipt_keywords": ["train ticket", "bahnfahrkarte", "vlak karta", "zugticket"],
+    "search_aliases": ["train", "rail"]
+  },
+  {
+    "id": "hotel-stay",
+    "display_name": "Hotel stay",
+    "type": "Hotel stay",
+    "category": "Travel",
+    "receipt_keywords": ["hotel stay", "hotel accommodation", "room rate", "ubernachtung", "nocenje"],
+    "search_aliases": ["lodging", "travel"]
+  },
+  {
+    "id": "course",
+    "display_name": "Course fees",
+    "type": "Course fees",
+    "category": "Education",
+    "receipt_keywords": ["course fee", "tuition fee", "tecaj", "kursgebuhr", "skolarina"],
+    "search_aliases": ["learning", "training"]
+  },
+  {
+    "id": "cinema",
+    "display_name": "Cinema ticket",
+    "type": "Cinema ticket",
+    "category": "Entertainment",
+    "receipt_keywords": ["cinema ticket", "kinokarte", "kino ulaznica"],
+    "search_aliases": ["film", "movie"]
+  },
+  {
+    "id": "museum",
+    "display_name": "Museum admission",
+    "type": "Museum admission",
+    "category": "Entertainment",
+    "receipt_keywords": ["museum admission", "museum ticket", "muzejska ulaznica", "museumseintritt"],
+    "search_aliases": ["museum", "admission"]
+  },
+  {
+    "id": "usb-cable",
+    "display_name": "USB cable",
+    "type": "USB cable",
+    "category": "Shopping",
+    "receipt_keywords": ["usb c cable", "usb cable", "usb kabel", "kabel usb"],
+    "search_aliases": ["charging cable", "accessory"]
+  },
+  {
+    "id": "drill-bit",
+    "display_name": "Drill bit",
+    "type": "Drill bit",
+    "category": "Tools",
+    "receipt_keywords": ["drill bit", "svrdlo", "spiralbohrer", "bohrer set"],
+    "search_aliases": ["drill", "hardware"]
+  },
+  {
+    "id": "medication",
+    "display_name": "Medication",
+    "type": "Medication",
+    "category": "Health",
+    "receipt_keywords": ["prescription medicine", "lijek na recept", "rezeptpflichtig"],
+    "search_aliases": ["pharmacy", "medicine"]
   }
 ]

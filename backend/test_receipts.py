@@ -50,6 +50,15 @@ class ReceiptApiTest(unittest.TestCase):
         self.assertEqual([call.args[1] for call in db.await_args_list], ["GET", "GET"])
         self.assertEqual(db.await_args_list[1].kwargs["params"]["store_key"], "eq.sample market")
 
+    def test_receipt_spending_category_uses_detail_or_confirmed_override(self):
+        app.dependency_overrides[database] = lambda: None
+        with patch("main.request", new=AsyncMock(return_value=RECEIPT["id"])) as db, TestClient(app) as client:
+            self.assertEqual(client.post("/v1/receipts", json=RECEIPT).status_code, 201)
+            self.assertEqual(db.await_args.kwargs["json"]["lines"][0]["spending_category"], "Groceries")
+            self.assertEqual(client.post("/v1/receipts", json={**RECEIPT, "spending_category": "Travel"}).status_code, 201)
+            self.assertEqual(db.await_args.kwargs["json"]["lines"][0]["spending_category"], "Travel")
+            self.assertEqual(client.post("/v1/receipts", json={**RECEIPT, "spending_category": "Unlisted"}).status_code, 422)
+
     def test_stream_reports_scan_stages_then_draft(self):
         app.dependency_overrides[database] = lambda: httpx.AsyncClient(base_url="https://example.test/rest/v1/")
         draft = {"store": "Sample Market", "lines": [{**PRODUCT, "review": False}]}

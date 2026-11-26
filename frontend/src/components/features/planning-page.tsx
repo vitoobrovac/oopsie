@@ -49,7 +49,7 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
   const [editor, setEditor] = useState<Editor | null>(null);
   const copy = pages[plan];
   const path = "planning/" + plan;
-  const categoryLabels = new Map<string, string>(expenseCategories.map(([name, label]) => [name, label]));
+  const categoryLabels = new Map<string, string>(expenseCategories.map(([label, value]) => [value, label]));
   for (const row of report.rows) {
     if (row.amountMinor < 0 && !categoryLabels.has(row.category)) categoryLabels.set(row.category, row.category);
   }

@@ -5,8 +5,10 @@ export const yearlyExpenseCategory = "Yearly expenses";
 
 export const expenseCategories = [
   ["Groceries", "Groceries"], ["Dinner", "Dining out"], ["Fun", "Entertainment"],
-  ["Transport", "Transport"], ["Housing", "Housing"], [subscriptionCategory, subscriptionCategory],
-  [yearlyExpenseCategory, yearlyExpenseCategory], ["Music & instruments", "Music & instruments"],
+  ["Music & instruments", "Music & instruments"], [subscriptionCategory, subscriptionCategory],
+  ["Transport", "Transport"], ["Travel", "Travel"], ["Education", "Education"], ["Tools", "Tools"],
+  ["Housing", "Housing"], ["Shopping", "Shopping"], ["Health", "Health"], ["Business", "Business"],
+  [yearlyExpenseCategory, yearlyExpenseCategory], ["Other", "Other"],
 ] as const;
 
 export type ManualEntry = {

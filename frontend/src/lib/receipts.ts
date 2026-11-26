@@ -15,6 +15,7 @@ export type ReceiptDraft = {
   date: string | null;
   currency: string | null;
   total_minor: number | null;
+  spending_category?: string;
   lines: (ReceiptLine & { review: boolean })[];
   warnings: string[];
   additional_receipts?: ReceiptDraft[];

@@ -1,6 +1,17 @@
 import { searchText } from "./receipts";
 
 const icons: [RegExp, string][] = [
+  [/\b(?:kebab)\b/, "🥙"],
+  [/\b(?:diesel|petrol|eurosuper|eurodizel|fuel)\b/, "⛽"],
+  [/\b(?:uber|taxi|ride fare)\b/, "🚕"],
+  [/\b(?:instant camera film|instax)\b/, "📷"],
+  [/\b(?:christmas tree ornaments|craft ornaments|christmas card|christmas stickers)\b/, "🎄"],
+  [/\b(?:zipper|sewing)\b/, "🧵"],
+  [/\b(?:stencil|masking tape|double sided tape|drill bit)\b/, "🛠️"],
+  [/\b(?:train ticket|rail)\b/, "🚆"],
+  [/\b(?:hotel|lodging)\b/, "🏨"],
+  [/\b(?:chatgpt|microsoft 365|web hosting|domain registration)\b/, "💻"],
+  [/\b(?:meta ads|advertising)\b/, "📣"],
   [/\b(?:zinger|burger|chicken sandwich|hot chicken sandwich)\b/, "🍔"],
   [/\b(?:fries|pommes)\b/, "🍟"],
   [/\b(?:nuggets|hot wings)\b/, "🍗"],

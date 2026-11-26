@@ -22,6 +22,51 @@ def draft(*body):
 
 
 class ParserTest(unittest.TestCase):
+    def test_invoice_allocates_verified_tax_and_uses_issue_date(self):
+        result = parse_receipt({"lines": [
+            line("Example craft supply", 20, 20, 170),
+            line("Datum dospijeća: 27.11.2026", 20, 65, 200),
+            line("Datum i vrijeme izdavanja: 12.11.26 13:21", 20, 90, 350),
+            line("Vrsta robe - usluge", 20, 150, 150),
+            line("Vrijed. bez PDV", 380, 150, 100),
+            line("Christmas cards", 20, 190, 110),
+            line("22,02", 400, 190, 55),
+            line("Shipping charge", 20, 230, 110),
+            line("4,79", 400, 230, 55),
+            line("Cashback", 20, 270, 110),
+            line("-3,00", 400, 270, 55),
+            line("Rekapitulacija PDV-a:", 290, 310, 135),
+            line("PDV 25%:", 290, 350, 85),
+            line("Za uplatu EUR:", 290, 390, 100),
+            line("29,76 EUR", 400, 390, 80),
+        ]})
+        self.assertEqual(result["date"], "2026-11-12")
+        self.assertEqual(result["currency"], "EUR")
+        self.assertEqual(result["total_minor"], 2976)
+        self.assertTrue(result["reconciliation"]["matches_printed_total"])
+        self.assertEqual([item["name"] for item in result["items"]], ["Christmas cards", "Shipping charge"])
+        self.assertEqual(result["adjustments"][0]["line_total_minor"], -375)
+
+    def test_paid_subscription_saves_value_instead_of_zero_balance(self):
+        result = parse_receipt({"lines": [
+            line("Faktura", 25, 70, 60),
+            line("Datum: 7 September 2026", 25, 105, 175),
+            line("Stavka", 25, 220, 65),
+            line("Microsoft 365 Basic", 25, 258, 140),
+            line("16,00", 380, 255, 70),
+            line("PDV (25,00%):", 250, 320, 95),
+            line("4,00 EUR", 380, 320, 70),
+            line("Ukupni iznos (EUR):", 250, 360, 130),
+            line("20,00 EUR", 395, 361, 85),
+            line("Iznos za plaćanje (EUR):", 250, 390, 142),
+            line("0,00", 395, 390, 80),
+        ]})
+        self.assertEqual(result["store"], "Microsoft")
+        self.assertEqual(result["date"], "2026-09-07")
+        self.assertEqual(result["total_minor"], 2000)
+        self.assertEqual([item["name"] for item in result["items"]], ["Microsoft 365 Basic"])
+        self.assertEqual(result["items"][0]["spending_category"], "Subscriptions")
+
     def test_matches_shifted_prices_and_keeps_discount_separate(self):
         result = draft(
             line("PEARS 500G", 25, 125, 150),
