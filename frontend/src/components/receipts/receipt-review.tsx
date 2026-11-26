@@ -7,8 +7,8 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { Icon } from "@/components/layout/icon";
 import { dismissModal, Modal } from "@/components/layout/modal";
 import { ScanProgress } from "./scan-progress";
-import { scanReceipt, scanStages, type ScanStage } from "@/lib/receipt-scan";
-import { accountRequest, useAccount } from "@/components/account/account-provider";
+import { needsScanFeedback, ReceiptRecognitionError, scanReceipt, scanStages, type ScanStage } from "@/lib/receipt-scan";
+import { accountRequest, supabase, useAccount } from "@/components/account/account-provider";
 import { formatMinor } from "@/lib/finance-format";
 import { isDate, parseAmount } from "@/lib/ledger";
 import { localToday } from "@/lib/use-ledger";
@@ -53,6 +53,12 @@ function euroTotal(cents: number, unitsPerEuro: string) {
 }
 
 const photoTypes = "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
+const feedbackFormats = [
+  { type: "image/jpeg", extension: "jpg", suffix: /\.jpe?g$/i },
+  { type: "image/png", extension: "png", suffix: /\.png$/i },
+  { type: "image/webp", extension: "webp", suffix: /\.webp$/i },
+];
+type FeedbackPhoto = { id: string; file: File };
 
 function moneyInput(cents: number | null) {
   return cents === null ? "" : (Math.abs(cents) / 100).toFixed(2);
@@ -94,7 +100,9 @@ export function ReceiptReview() {
   const [error, setError] = useState("");
   const [batch, setBatch] = useState<{ number: number; count: number; remaining: ReceiptDraft[] } | null>(null);
   const [scanStage, setScanStage] = useState<ScanStage>("upload");
-  const [busy, setBusy] = useState<"scan" | "save" | null>(null);
+  const [busy, setBusy] = useState<"scan" | "save" | "feedback" | null>(null);
+  const [feedbackPhoto, setFeedbackPhoto] = useState<FeedbackPhoto | null>(null);
+  const [feedbackStatus, setFeedbackStatus] = useState<"sent" | "error" | null>(null);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
@@ -143,7 +151,10 @@ export function ReceiptReview() {
   async function scan(file?: File) {
     if (!file || !session || busy) return;
     setError("");
+    setFeedbackPhoto(null);
+    setFeedbackStatus(null);
     if (file.size > 10 * 1024 * 1024) return setError("Choose a photo under 10 MB.");
+    const feedback = { id: newReceiptId(), file };
     setPreview(URL.createObjectURL(file));
     setScanStage("upload");
     setBusy("scan");
@@ -154,9 +165,33 @@ export function ReceiptReview() {
       setScanStage("ready");
       const remaining = draft.additional_receipts ?? [];
       setBatch(remaining.length ? { number: 1, count: remaining.length + 1, remaining } : null);
+      if (needsScanFeedback(draft)) setFeedbackPhoto(feedback);
       populate(draft);
     } catch (reason) {
+      if (reason instanceof ReceiptRecognitionError) setFeedbackPhoto(feedback);
       setError(reason instanceof Error ? reason.message : "Could not scan the photo.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function sendFeedback() {
+    if (!supabase || !session || !feedbackPhoto || busy) return;
+    const { id, file } = feedbackPhoto;
+    const format = feedbackFormats.find(({ type, suffix }) => file.type === type || (!file.type && suffix.test(file.name)));
+    setBusy("feedback");
+    setFeedbackStatus(null);
+    try {
+      if (!format) throw new Error("Unsupported photo format");
+      const path = session.user.id + "/" + id + "." + format.extension;
+      const { error } = await supabase.storage.from("receipt-scan-feedback")
+        .upload(path, file.slice(0, file.size, format.type), { upsert: false, cacheControl: "0" });
+      const alreadySent = error && "code" in error && (error.code === "ResourceAlreadyExists" || error.code === "KeyAlreadyExists");
+      if (error && !alreadySent) throw error;
+      setFeedbackStatus("sent");
+      setFeedbackPhoto(null);
+    } catch {
+      setFeedbackStatus("error");
     } finally {
       setBusy(null);
     }
@@ -186,6 +221,8 @@ export function ReceiptReview() {
     setError("");
     setBatch(null);
     setScanStage("upload");
+    setFeedbackPhoto(null);
+    setFeedbackStatus(null);
   }
 
   function updateLine(key: string, patch: Partial<LineEdit>) {
@@ -258,6 +295,22 @@ export function ReceiptReview() {
         {editing ? "Tell oopsie what any unfamiliar items are, then check the total and save." : "Take a clear photo of the whole receipt, or choose one from your device."}
       </p>
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+
+      {(feedbackPhoto || feedbackStatus === "sent") && (
+        <section aria-label="Receipt scan feedback" className="mt-4 rounded-2xl border border-[#eee1cb] bg-[#fffaf0] p-4">
+          {feedbackStatus === "sent" ? (
+            <p role="status" className="text-sm font-medium text-[#31533c]">Thanks. Your photo was sent to Oopsie support for manual review.</p>
+          ) : <>
+            <h2 className="text-sm font-semibold">Oopsie couldn’t read enough of this receipt</h2>
+            <p className="mt-1 text-sm text-[#59685e]">Receipt scanning is still improving. You can share the original photo privately with Oopsie support so they can check what went wrong.</p>
+            <p className="mt-1 text-xs text-[#59685e]">Support can view everything visible in the photo. You can still enter or correct the receipt yourself.</p>
+            <button type="button" className={secondary + " mt-3 disabled:opacity-55"} disabled={Boolean(busy)} onClick={sendFeedback}>
+              {busy === "feedback" ? "Sending photo…" : feedbackStatus === "error" ? "Retry sending photo" : "Send photo for review"}
+            </button>
+            {feedbackStatus === "error" && <p role="alert" className="mt-2 text-xs text-red-800">Couldn’t send the photo. Try again or continue with the receipt.</p>}
+          </>}
+        </section>
+      )}
 
       {!editing && (
         <section className="mt-5 space-y-3 rounded-2xl border border-[#e4e9e2] bg-white p-5">

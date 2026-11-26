@@ -18,7 +18,19 @@ export type ScanStage = keyof typeof scanStages;
 type ScanEvent =
   | { type: "stage"; stage: ScanStage }
   | { type: "result"; draft: ReceiptDraft }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; code?: string };
+
+export class ReceiptRecognitionError extends Error {}
+
+export function needsScanFeedback(draft: ReceiptDraft) {
+  return [draft, ...(draft.additional_receipts ?? [])].some(({ lines, total_minor }) => {
+    const products = lines.filter(({ kind }) => kind === "product");
+    const missed = products.filter(({ review, amount_minor }) => review || amount_minor === null).length;
+    const lineTotal = lines.reduce((sum, { amount_minor }) => sum + (amount_minor ?? 0), 0);
+    const incomplete = missed > 0 || (total_minor !== null && lineTotal !== total_minor);
+    return products.length === 0 || missed > 2 || (incomplete && products.length - missed <= 2);
+  });
+}
 
 export async function scanReceipt(session: Session, file: File, onStage: (stage: ScanStage) => void) {
   const response = await accountFetch(session, "receipts/analyze", {
@@ -42,7 +54,10 @@ export async function scanReceipt(session: Session, file: File, onStage: (stage:
       for (const line of lines) {
         if (!line.trim()) continue;
         const event: ScanEvent = JSON.parse(line);
-        if (event.type === "error") throw new Error(event.message);
+        if (event.type === "error") {
+          if (event.code === "receipt_unreadable") throw new ReceiptRecognitionError(event.message);
+          throw new Error(event.message);
+        }
         if (event.type === "stage" && event.stage !== "ready" && Object.hasOwn(scanStages, event.stage)) onStage(event.stage);
         if (event.type === "result") return event.draft;
       }

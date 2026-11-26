@@ -16,6 +16,12 @@ Recognized lines show a compact summary. The scanner separates column headers fr
 
 For a phone, open an accessible app URL over HTTPS and allow the corresponding return URL in Supabase Auth. By default the frontend forwards API requests through its own origin. When deploying separately, set `LUMA_API_PROXY_URL` on the frontend to the backend address, or configure the public API URL and matching CORS origin described below.
 
+### Receipt scan feedback
+
+Apply migration 009 to enable the private `receipt-scan-feedback` bucket. Oopsie offers feedback when a scan has three or more unidentified products or unreadable prices, leaves at most two identified items on an incomplete receipt, or finds no usable items. The original image is uploaded only when the signed-in user chooses **Send photo for review**. They can still correct or enter the receipt themselves.
+
+In the Supabase project dashboard, open **Storage → receipt-scan-feedback** to review submitted images. Use the Storage dashboard to delete photos after reviewing them. Keep the bucket private. Use de-identified receipt details or synthetic examples when updating the parser and catalog, and keep customer photos out of Git and shared test fixtures.
+
 ## 1. Prepare Supabase
 
 1. Create a Supabase project. Copy its **Project URL** and **publishable key** from the project’s Connect dialog.
@@ -61,7 +67,13 @@ Open **Insights → Ask Oopsie AI**. The assistant calculates answers in the bro
 
 ## Enable Oopsie Hunt
 
-Apply migration 007 after the existing migrations, then restart or deploy the API. Open the four-square menu and select Oopsie Hunt. New and existing accounts receive a stable player ID. Players pick a unique username in Settings before they can enter the lobby. Only their usernames are shared with other Hunt participants.
+Apply migrations 007 through 010 in order, then restart or deploy the API. Open the four-square menu and select Oopsie Hunt. New and existing accounts receive a stable player ID. Players pick a unique username in Settings before they can enter the lobby. The lifetime leaderboard shares usernames, XP, levels, and rank. Receipts and ledger records remain private.
+
+Permanent challenges include Receipt Archivist, Receipt Regular, Income Tracker, Budget Builder, Weekly Warrior, Consistent Hunter, and Variety Hunter. Each tier can be claimed once, and every 100 lifetime XP adds a level. Saved receipts count toward the date and month milestones. Players can join the current weekly Hunt once to earn participation progress. Existing receipt, income, and budget records count, and deleting a record later keeps the milestone. Challenges that require verified scans or scored results appear under **Upcoming challenges** until their event sources are available. Permanent awards only enter the lifetime XP ledger, which also supports future weekly XP payouts.
+
+An unclaimed reward appears as a number on the four-square menu and beside **Oopsie Hunt**. Claim and unlock messages dismiss after four seconds. Badges stay visible until the rewards are claimed.
+
+The Overview chart gives the selected week seven days, the configured monthly reporting period one point per day, and the calendar year twelve months. Future dates remain visible as upcoming.
 
 The migration seeds four weekly briefings from the current Monday in Europe/Berlin. Future briefings can be added to the private hunt_weeks table by a database administrator. This release covers the lobby and onboarding. Competitive receipt verification, scoring, and rankings need their own implementation before awarding points.
 
@@ -75,7 +87,7 @@ Budgets, Goals and Subscriptions use the FastAPI service and Supabase by default
 
 For an isolated browser preview, set `NEXT_PUBLIC_PLANNING_STORAGE=preview` in `frontend/.env.local` and restart Next.js in development mode. This also lets you view any previous preview records stored in that browser. Preview records are scoped to the signed-in account. Due preview subscriptions appear in the local ledger when you open the app or return to the tab. Clearing browser data removes the preview plans. Normal transactions and receipts continue to use the configured API. Production builds always use the API and Supabase.
 
-1. Use a separate Supabase test project or your local Supabase stack. In a fresh test database, run migrations 001 through 007 in order. In the dashboard SQL editor, paste the contents of each file and run it.
+1. Use a separate Supabase test project or your local Supabase stack. In a fresh test database, run migrations 001 through 010 in order. In the dashboard SQL editor, paste the contents of each file and run it.
 2. Set the Supabase URL and publishable key in both your local API and frontend to the test project's values. Set the frontend API URL to http://localhost:8000 and restart both development servers. Create a test login and open http://localhost:3000.
 3. Open the four-square menu. In Budgets, set a Groceries limit and create a grocery transaction to see it update. In Goals, create a target and set Saved so far. In Subscriptions, add a weekly or monthly expense due today and check Transactions. Reload and verify there is still only one entry for today. You can pause or delete a schedule while keeping its recorded expenses.
 
@@ -146,7 +158,7 @@ Remove-Item Env:OOPSIE_STATIC_EXPORT, Env:NEXT_PUBLIC_LUMA_API_URL
    | Start Command | `node node_modules/next/dist/bin/next start -H 0.0.0.0` | `python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT` |
 
    Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `NEXT_PUBLIC_LUMA_API_URL` on the website. Use the API's Render HTTPS URL for the last value. On the API set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `LUMA_WEB_ORIGIN`, with the website's HTTPS origin for the last value. Redeploy the frontend after changing public environment variables.
-3. Apply migrations 001 through 007 in order on a fresh Supabase project. On an existing project, apply any missing migrations in order, including 004 for yearly subscriptions. Enable the Cron job above when releasing subscriptions. Add the website's HTTPS URL as the Supabase Auth Site URL and an allowed redirect. In Google Cloud add the live website origin to the OAuth client and keep the Supabase callback under Authorized redirect URIs.
+3. Apply migrations 001 through 010 in order on a fresh Supabase project. On an existing project, apply any missing migrations in order. Enable the Cron job above when releasing subscriptions. Add the website's HTTPS URL as the Supabase Auth Site URL and an allowed redirect. In Google Cloud add the live website origin to the OAuth client and keep the Supabase callback under Authorized redirect URIs.
 4. Set up and verify the few tester accounts first. In Supabase Auth, turn off **Allow new users to sign up** before sharing the link. Existing accounts can still sign in, including your own. Verify that an account outside your tester list cannot create a new account.
 5. On the HTTPS URL, test signing in, scanning a receipt, fixing one name, saving, and finding the item on your phone. Verify that a second account sees only its own ledger. Render Free Web Services can go idle, including the frontend and API. For an instant first page, verify a static frontend build and serve it on a CDN. Keep the API active if ledger data also needs to load immediately. Check memory use with real receipt photos.
 

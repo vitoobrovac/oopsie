@@ -64,7 +64,7 @@ export function Dashboard() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <CashFlowChart rows={report.rows} today={localToday()} periodStart={report.start} weekStartDay={weekStartDay} />
+        <CashFlowChart rows={report.rows} today={localToday()} periodStart={report.start} nextPeriodStart={report.nextStart} weekStartDay={weekStartDay} />
         <div className="grid content-start gap-2">
           <CategoryChart categories={report.categories(categoryPeriod)} period={"From " + formatReceiptDate(categoryPeriod)} />
           <label className="flex items-center justify-end gap-2 text-xs text-[#59685e]">

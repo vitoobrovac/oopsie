@@ -17,7 +17,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ValidationError, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from exchange_rates import Currency, RateUnavailable, convert_receipt, latest_rate
-from receipt_pipeline import analyze
+from receipt_pipeline import ReceiptRecognitionError, analyze
 
 app = FastAPI(title="oopsie ledger API")
 app.add_middleware(
@@ -102,6 +102,17 @@ class HuntUsername(BaseModel):
         return value.strip().lower() if isinstance(value, str) else value
 
 
+class HuntClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    challenge_id: str = Field(pattern=r"^[a-z_]{1,40}$")
+    tier: int = Field(strict=True, ge=1, le=3)
+
+
+class HuntJoin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    starts_on: Date
+
+
 class Preferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
     monthStartDay: int = Field(strict=True, ge=1, le=31)
@@ -179,6 +190,10 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
                 return None
             if path in {"rpc/get_hunt_profile", "rpc/set_hunt_username", "rpc/get_hunt_lobby"}:
                 raise HTTPException(503, "Oopsie Hunt needs migration 007 in Supabase.")
+            if path in {"rpc/get_hunt_achievements", "rpc/claim_hunt_achievement"}:
+                raise HTTPException(503, "Permanent Hunt challenges need migration 008 in Supabase.")
+            if path in {"rpc/join_current_hunt", "rpc/get_hunt_reward_count"}:
+                raise HTTPException(503, "Hunt participation and notifications need migration 010 in Supabase.")
             if path in {"budgets", "savings_goals", "subscriptions", "rpc/sync_my_subscriptions"}:
                 raise HTTPException(503, "Planning needs the private planning migration in your development database.")
             raise HTTPException(503, "Receipt tables are missing. Apply the receipt migration in Supabase.")
@@ -186,6 +201,10 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
             raise HTTPException(503, "Apply migration 004 in Supabase to enable yearly subscriptions.")
         if code == "23505" and path == "rpc/set_hunt_username":
             raise HTTPException(409, "That username is already taken.")
+        if code == "22023" and path == "rpc/claim_hunt_achievement":
+            raise HTTPException(409, "This tier is not ready to claim.")
+        if code == "22023" and path == "rpc/join_current_hunt":
+            raise HTTPException(409, "This hunt week has ended or is unavailable. Refresh the Hunt.")
         if code == "23505" and path == "budgets":
             raise HTTPException(409, "A budget already exists for this category.")
         raise HTTPException(502, "The database could not complete this request.")
@@ -219,6 +238,27 @@ async def change_hunt_username(profile: HuntUsername, client: Database):
 @app.get("/v1/hunt/lobby")
 async def get_hunt_lobby(client: Database):
     return await request(client, "GET", "rpc/get_hunt_lobby")
+
+
+@app.get("/v1/hunt/achievements")
+async def get_hunt_achievements(client: Database):
+    return await request(client, "GET", "rpc/get_hunt_achievements")
+
+
+@app.post("/v1/hunt/achievements/claim")
+async def claim_hunt_achievement(claim: HuntClaim, client: Database):
+    return await request(client, "POST", "rpc/claim_hunt_achievement",
+                         json={"challenge_id": claim.challenge_id, "requested_tier": claim.tier})
+
+
+@app.get("/v1/hunt/rewards")
+async def get_hunt_reward_count(client: Database):
+    return await request(client, "GET", "rpc/get_hunt_reward_count")
+
+
+@app.post("/v1/hunt/join")
+async def join_current_hunt(join: HuntJoin, client: Database):
+    return await request(client, "POST", "rpc/join_current_hunt", json={"expected_week": join.starts_on.isoformat()})
 
 
 @app.get("/v1/ledger")
@@ -331,6 +371,8 @@ async def scan_photo(image: bytes, on_stage=None):
     async with ocr_lock:
         try:
             return await run_in_threadpool(analyze, image, on_stage=on_stage)
+        except ReceiptRecognitionError:
+            raise
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         except Exception as exc:
@@ -385,6 +427,8 @@ async def receipt_scan_events(image: bytes, client: httpx.AsyncClient):
             draft = await apply_remembered_products(client, value)
             yield scan_event("result", draft=draft)
             return
+    except ReceiptRecognitionError as exc:
+        yield scan_event("error", message=str(exc), code="receipt_unreadable")
     except HTTPException as exc:
         yield scan_event("error", message=exc.detail)
 
@@ -397,7 +441,10 @@ async def analyze_receipt(photo: Request, client: Database):
             receipt_scan_events(image, client), media_type="application/x-ndjson",
             headers={"Cache-Control": "no-store, no-transform", "X-Accel-Buffering": "no"},
         )
-    return await apply_remembered_products(client, await scan_photo(image))
+    try:
+        return await apply_remembered_products(client, await scan_photo(image))
+    except ReceiptRecognitionError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.get("/v1/receipts")

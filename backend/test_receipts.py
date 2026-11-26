@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from exchange_rates import ExchangeRate, RateUnavailable, parse_rates
 from main import app, database
-from receipt_pipeline import normalize_photo
+from receipt_pipeline import ReceiptRecognitionError, normalize_photo
 
 PRODUCT = {
     "kind": "product", "receipt_name": "SHOP  PEARS", "display_name": "Pears",
@@ -72,6 +72,24 @@ class ReceiptApiTest(unittest.TestCase):
         self.assertEqual([event["stage"] for event in events if event["type"] == "stage"],
                          ["preparing", "reading", "parsing", "matching", "checking"])
         self.assertEqual(events[-1], {"type": "result", "draft": draft})
+
+    def test_stream_distinguishes_unreadable_receipts_from_invalid_files(self):
+        app.dependency_overrides[database] = lambda: httpx.AsyncClient(base_url="https://example.test/rest/v1/")
+        failures = [
+            (ReceiptRecognitionError("No receipt items could be read."), "receipt_unreadable"),
+            (ValueError("Choose a JPEG, PNG, or WebP receipt photo."), None),
+        ]
+        for failure, code in failures:
+            with self.subTest(code=code), patch("main.analyze", side_effect=failure), patch(
+                "main.request", new=AsyncMock(return_value={"id": "test"})
+            ), TestClient(app) as client:
+                headers = {"Content-Type": "image/png"}
+                response = client.post("/v1/receipts/analyze", content=b"sample",
+                                       headers={**headers, "Accept": "application/x-ndjson"})
+                event = json.loads(response.text.splitlines()[-1])
+                self.assertEqual(event["type"], "error")
+                self.assertEqual(event.get("code"), code)
+                self.assertEqual(client.post("/v1/receipts/analyze", content=b"sample", headers=headers).status_code, 422)
 
     def test_save_reconciles_and_uses_one_rpc(self):
         app.dependency_overrides[database] = lambda: None

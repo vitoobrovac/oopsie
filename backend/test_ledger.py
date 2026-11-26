@@ -54,6 +54,31 @@ class LedgerApiTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             SubscriptionInput(**{**data, "amount_minor": 11}, cadence="yearly_split")
 
+    def test_hunt_claim_uses_player_token_and_database_eligibility(self):
+        original_client = httpx.AsyncClient
+        path = "/v1/hunt/achievements"
+        payload = {"challenge_id": "receipt_days", "tier": 2}
+
+        def database(request):
+            self.assertEqual(request.headers["authorization"], "Bearer test-player")
+            if request.method == "GET":
+                self.assertTrue(request.url.path.endswith("/rpc/get_hunt_achievements"))
+                return httpx.Response(200, json={"challenges": []})
+            self.assertTrue(request.url.path.endswith("/rpc/claim_hunt_achievement"))
+            self.assertEqual(json.loads(request.content), {"challenge_id": "receipt_days", "requested_tier": 2})
+            return httpx.Response(400, json={"code": "22023"})
+
+        env = {"SUPABASE_URL": "https://project.example", "SUPABASE_PUBLISHABLE_KEY": "test-project"}
+        with TestClient(app) as anonymous:
+            self.assertEqual(anonymous.get(path).status_code, 401)
+            self.assertEqual(anonymous.post(path + "/claim", json=payload).status_code, 401)
+        with patch.dict(os.environ, env), patch("main.httpx.AsyncClient", side_effect=lambda **kw: original_client(
+            **kw, transport=httpx.MockTransport(database)
+        )), TestClient(app, headers={"Authorization": "Bearer test-player"}) as client:
+            self.assertEqual(client.get(path).json(), {"challenges": []})
+            self.assertEqual(client.post(path + "/claim", json={**payload, "xp": 9999}).status_code, 422)
+            self.assertEqual(client.post(path + "/claim", json=payload).status_code, 409)
+
     def test_planning_uses_owner_token_and_validated_cents(self):
         original_client = httpx.AsyncClient
         budget = {"category": "Groceries", "amount_minor": 42000}

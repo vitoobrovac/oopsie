@@ -32,4 +32,5 @@ button, a { -webkit-tap-highlight-color: transparent; }
   :root:not([data-oopsie-reduced-motion]) .oopsie-reveal { animation: oopsie-arrive 320ms ease-out both; }
   :root:not([data-oopsie-reduced-motion]) .oopsie-float { animation: oopsie-float 1.8s ease-in-out infinite; }
   :root:not([data-oopsie-reduced-motion]) .oopsie-orbit { animation: oopsie-orbit 1.6s linear infinite; }
+  :root:not([data-oopsie-reduced-motion]) .oopsie-hunt-star { animation: oopsie-arrive 350ms ease-out both; }
 }

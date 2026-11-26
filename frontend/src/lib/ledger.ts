@@ -75,7 +75,7 @@ export function ledgerReport(entries: ManualEntry[], day: number, today: string)
   };
 
   return {
-    rows, start, current,
+    rows, start, nextStart, current,
     range: range(start, nextStart),
     chart: labels.map((date) => ({ start: date, month: date.slice(0, 7), ...getPeriod(date) })),
     cards: [

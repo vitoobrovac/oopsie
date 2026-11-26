@@ -13,6 +13,10 @@ LAB = Path(__file__).resolve().parents[1] / "experiments" / "receipt-ocr"
 SCAN_SIDE = 1800
 
 
+class ReceiptRecognitionError(ValueError):
+    """The image opened successfully, but the scanner could not read receipt lines."""
+
+
 @lru_cache(maxsize=1)
 def pipeline():
     scanner = runpy.run_path(str(LAB / "read-rapidocr.py"))
@@ -157,7 +161,7 @@ def analyze(image: bytes, on_stage: Callable[[str], None] | None = None) -> dict
     stage("reading")
     ocr = recognize(normalized)
     if not ocr["lines"]:
-        raise ValueError("No text was found. Try better light or a closer photo.")
+        raise ReceiptRecognitionError("No text was found. Try better light or a closer photo.")
     crops = receipt_crops(normalized, ocr)
     if crops:
         stage("separating")
@@ -169,7 +173,7 @@ def analyze(image: bytes, on_stage: Callable[[str], None] | None = None) -> dict
     stage("matching")
     drafts = [format_draft(enrich(draft, catalog)) for draft in parsed if draft["items"] or draft["total_minor"] is not None]
     if not drafts:
-        raise ValueError("No receipt items could be read. Try a closer photo of one receipt.")
+        raise ReceiptRecognitionError("No receipt items could be read. Try a closer photo of one receipt.")
     first, *additional = drafts
     if additional:
         first["additional_receipts"] = additional

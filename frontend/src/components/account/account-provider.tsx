@@ -23,6 +23,7 @@ type Account = {
   remote: RemoteState | null;
   previewEntries: ManualEntry[];
   retry: () => void;
+  ledgerRevision: number;
   refreshLedger: () => void;
   create: (entry: Omit<ManualEntry, "id">) => Promise<void>;
   remove: (id: string) => Promise<void>;
@@ -135,6 +136,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         if (error) throw error;
       },
       previewEntries: preview && preview.owner === owner ? preview.entries : noPreviewEntries,
+      ledgerRevision: refresh,
       refreshLedger: () => setRefresh((count) => count + 1),
       retry: () => { setRemote(null); setRefresh((count) => count + 1); },
       create: async (entry) => {
