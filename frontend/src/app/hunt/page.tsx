@@ -6,7 +6,7 @@ import { BrandLogo } from "@/components/layout/brand-logo";
 import { Icon } from "@/components/layout/icon";
 import { dismissModal, Modal } from "@/components/layout/modal";
 import { accountRequest, useAccount } from "@/components/account/account-provider";
-import { HuntNotice, LifetimeLeaderboard, PermanentChallenges } from "@/components/features/hunt-achievements";
+import { HuntLevelBadge, HuntNotice, LifetimeLeaderboard, PermanentChallenges } from "@/components/features/hunt-achievements";
 import { formatReceiptDate } from "@/lib/finance-format";
 import { useHunt, type HuntAchievements, type HuntLobby } from "@/lib/use-hunt";
 
@@ -109,7 +109,10 @@ function HuntLobbyPage() {
           <>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#392c53] bg-[#1d162e] px-4 py-2">
               <span className="min-w-0 break-all text-sm font-bold text-[#e0f887]">@{data.profile.username}</span>
-              {player && <p className="text-xs font-semibold text-[#e1d6f7]">Level {player.level} · {player.xp.toLocaleString("en")} XP · #{player.rank} lifetime</p>}
+              {player && <div className="flex items-center gap-2 text-xs font-semibold text-[#e1d6f7]">
+                <HuntLevelBadge level={player.level} />
+                <p>{player.xp.toLocaleString("en")} XP · #{player.rank} lifetime</p>
+              </div>}
               <Link href="/settings#hunt-profile" className="inline-flex min-h-11 items-center text-sm font-medium text-[#ddd0f1] underline">Player settings</Link>
             </div>
             <div role="group" aria-label="Hunt view" className="my-4 flex flex-wrap gap-2">
