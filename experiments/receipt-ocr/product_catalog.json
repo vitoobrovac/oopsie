@@ -5,7 +5,7 @@
     "type": "Toast bread",
     "category": "Bakery",
     "receipt_names": ["SBUDGET TOASTBROT"],
-    "receipt_keywords": ["TOASTBROT", "TOAST BREAD"],
+    "receipt_keywords": ["TOASTBROT", "TOAST BREAD", "WHOLEMEAL BREAD", "BREAD", "KRUH"],
     "search_aliases": ["bread", "toast", "sandwich bread"]
   },
   {
@@ -120,5 +120,181 @@
     "category": "Fruit",
     "receipt_keywords": ["APFEL GRANNY", "GRANNY SMITH"],
     "search_aliases": ["apple", "apples", "granny smith"]
+  },
+  {
+    "id": "eggs",
+    "display_name": "Eggs",
+    "type": "Eggs",
+    "category": "Eggs",
+    "receipt_keywords": ["FREE RANGE EGGS", "EGGS", "EGG", "EIER", "JAJA"],
+    "search_aliases": ["egg"]
+  },
+  {
+    "id": "chicken",
+    "display_name": "Chicken",
+    "type": "Chicken",
+    "category": "Meat",
+    "receipt_keywords": ["CHICKEN", "CHICKEN THIGHS", "HUHN", "PILIĆ", "PILETINA"],
+    "search_aliases": ["chicken thighs"]
+  },
+  {
+    "id": "beef-mince",
+    "display_name": "Minced beef",
+    "type": "Minced beef",
+    "category": "Meat",
+    "receipt_keywords": ["BEEF MINCE", "GROUND BEEF", "RINDERHACK", "MLJEVENA JUNETINA"],
+    "search_aliases": ["beef", "minced meat"]
+  },
+  {
+    "id": "rice",
+    "display_name": "Rice",
+    "type": "Rice",
+    "category": "Pantry",
+    "receipt_keywords": ["BASMATI RICE", "RICE", "REIS", "RIŽA"],
+    "search_aliases": ["basmati"]
+  },
+  {
+    "id": "pasta",
+    "display_name": "Pasta",
+    "type": "Pasta",
+    "category": "Pantry",
+    "receipt_keywords": ["PENNE PASTA", "PENNE", "PASTA", "TJESTENINA", "SPAGHETTI"],
+    "search_aliases": ["penne"]
+  },
+  {
+    "id": "passata",
+    "display_name": "Tomato passata",
+    "type": "Tomato passata",
+    "category": "Pantry",
+    "receipt_keywords": ["PASSATA", "TOMATO PUREE", "PASIRANA RAJČICA"],
+    "search_aliases": ["tomato", "puree"]
+  },
+  {
+    "id": "tuna",
+    "display_name": "Tuna",
+    "type": "Tuna",
+    "category": "Fish & seafood",
+    "receipt_keywords": ["TUNA", "THUNFISCH", "TUNJEVINA"],
+    "search_aliases": ["fish"]
+  },
+  {
+    "id": "olive-oil",
+    "display_name": "Olive oil",
+    "type": "Olive oil",
+    "category": "Pantry",
+    "receipt_keywords": ["OLIVE OIL", "OLIVENÖL", "MASLINOVO ULJE"],
+    "search_aliases": ["oil", "extra virgin"]
+  },
+  {
+    "id": "yogurt",
+    "display_name": "Yogurt",
+    "type": "Yogurt",
+    "category": "Dairy",
+    "receipt_keywords": ["GREEK YOGHURT", "GREEK YOGURT", "YOGHURT", "YOGURT", "JOGHURT", "JOGURT"],
+    "search_aliases": ["yoghurt", "greek yogurt"]
+  },
+  {
+    "id": "cheddar",
+    "display_name": "Cheddar cheese",
+    "type": "Cheddar cheese",
+    "category": "Dairy",
+    "receipt_keywords": ["CHEDDAR CHEESE", "CHEDDAR"],
+    "search_aliases": ["cheese"]
+  },
+  {
+    "id": "broccoli",
+    "display_name": "Broccoli",
+    "type": "Broccoli",
+    "category": "Vegetables",
+    "receipt_keywords": ["BROCCOLI", "BROKKOLI", "BROKULA"],
+    "search_aliases": []
+  },
+  {
+    "id": "bell-pepper",
+    "display_name": "Bell pepper",
+    "type": "Bell pepper",
+    "category": "Vegetables",
+    "receipt_keywords": ["CAPSICUM", "BELL PEPPER", "PAPRIKA"],
+    "search_aliases": ["capsicum", "sweet pepper"]
+  },
+  {
+    "id": "avocado",
+    "display_name": "Avocado",
+    "type": "Avocado",
+    "category": "Fruit",
+    "receipt_keywords": ["AVOCADO", "AVOCADOS", "AVOKADO"],
+    "search_aliases": ["avocados"]
+  },
+  {
+    "id": "spinach",
+    "display_name": "Spinach",
+    "type": "Spinach",
+    "category": "Vegetables",
+    "receipt_keywords": ["BABY SPINACH", "SPINACH", "SPINAT", "ŠPINAT"],
+    "search_aliases": ["baby spinach"]
+  },
+  {
+    "id": "carrots",
+    "display_name": "Carrots",
+    "type": "Carrots",
+    "category": "Vegetables",
+    "receipt_keywords": ["CARROTS", "CARROT", "KAROTTEN", "MÖHREN", "MRKVA"],
+    "search_aliases": ["carrot"]
+  },
+  {
+    "id": "onions",
+    "display_name": "Onions",
+    "type": "Onions",
+    "category": "Vegetables",
+    "receipt_keywords": ["BROWN ONIONS", "ONIONS", "ONION", "ZWIEBELN", "LUK"],
+    "search_aliases": ["onion"]
+  },
+  {
+    "id": "lettuce",
+    "display_name": "Lettuce",
+    "type": "Lettuce",
+    "category": "Vegetables",
+    "receipt_keywords": ["COS LETTUCE", "ROMAINE LETTUCE", "LETTUCE"],
+    "search_aliases": ["cos lettuce", "romaine"]
+  },
+  {
+    "id": "water",
+    "display_name": "Water",
+    "type": "Water",
+    "category": "Drinks",
+    "receipt_keywords": ["BOTTLED WATER", "SPARKLING WATER", "MINERAL WATER", "TRINKWASSER", "MINERALWASSER", "VODA", "WATER"],
+    "search_aliases": []
+  },
+  {
+    "id": "bass-guitar",
+    "display_name": "Bass guitar",
+    "type": "Electric bass",
+    "category": "Music & instruments",
+    "receipt_keywords": ["YAMAHA TRBX", "BASS GUITAR", "ELECTRIC BASS", "E-BASS"],
+    "search_aliases": ["bass", "guitar", "yamaha"]
+  },
+  {
+    "id": "bass-gigbag",
+    "display_name": "Bass gig bag",
+    "type": "Instrument case",
+    "category": "Music & instruments",
+    "receipt_keywords": ["E-BASS GIGBAG", "BASS GIG BAG", "BASS GIGBAG", "GUITAR GIG BAG"],
+    "search_aliases": ["gigbag", "case", "instrument bag"]
+  },
+  {
+    "id": "guitar-stand",
+    "display_name": "Guitar stand",
+    "type": "Instrument stand",
+    "category": "Music & instruments",
+    "receipt_keywords": ["MILLENIUM GS-2000", "GUITAR STAND", "BASS STAND", "INSTRUMENT STAND"],
+    "search_aliases": ["stand", "bass stand"]
+  },
+  {
+    "id": "instrument-cable",
+    "display_name": "Instrument cable",
+    "type": "Audio cable",
+    "category": "Music & instruments",
+    "receipt_keywords": ["INSTRUMENT CABLE", "GUITAR CABLE", "BASS CABLE"],
+    "search_aliases": ["cable", "audio cable"]
   }
 ]

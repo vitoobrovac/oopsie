@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState, type FormEvent } from "react";
+import { Icon } from "@/components/layout/icon";
 import { dismissModal, Modal } from "@/components/layout/modal";
 import { ScanProgress } from "./scan-progress";
 import { accountRequest, useAccount } from "@/components/account/account-provider";
@@ -31,10 +32,35 @@ const input = "mt-1 min-h-11 w-full min-w-0 rounded-xl border border-[#dce4d9] b
 const button = "inline-flex min-h-11 items-center justify-center rounded-xl px-4 text-sm font-semibold";
 const primary = button + " bg-[#183c31] text-white disabled:opacity-55";
 const secondary = button + " border border-[#dce4d9] bg-white text-[#183c31]";
+const currencies = {
+  EUR: "Euro", USD: "US dollar", GBP: "British pound", AUD: "Australian dollar",
+  CAD: "Canadian dollar", NZD: "New Zealand dollar", CHF: "Swiss franc",
+};
+
+type Quote = { rate_date: string; units_per_eur: string };
+type QuoteState = { currency: string; quote?: Quote; error?: string };
+
+function isSupportedCurrency(code: string) {
+  return Object.hasOwn(currencies, code);
+}
+
+function euroTotal(cents: number, unitsPerEuro: string) {
+  const [whole, fraction = ""] = unitsPerEuro.split(".");
+  const denominator = BigInt(whole + fraction);
+  const numerator = BigInt(cents) * BigInt("1" + "0".repeat(fraction.length));
+  return Number((numerator * BigInt(2) + denominator) / (denominator * BigInt(2)));
+}
+
 const photoTypes = "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
 
 function moneyInput(cents: number | null) {
   return cents === null ? "" : (Math.abs(cents) / 100).toFixed(2);
+}
+
+function formatDraftAmount(cents: number, currency: string) {
+  if (currency === "EUR") return formatMinor(cents);
+  if (currency === "$") return (cents < 0 ? "−" : "") + "$" + (Math.abs(cents) / 100).toFixed(2);
+  return (cents / 100).toFixed(2) + (currency ? " " + currency : "");
 }
 
 function readAmount(value: string) {
@@ -59,6 +85,8 @@ export function ReceiptReview() {
   const [store, setStore] = useState("");
   const [day, setDay] = useState("");
   const [currency, setCurrency] = useState("");
+  const [quoteState, setQuoteState] = useState<QuoteState | null>(null);
+  const [rateRefresh, setRateRefresh] = useState(0);
   const [total, setTotal] = useState("");
   const [lines, setLines] = useState<LineEdit[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -67,11 +95,37 @@ export function ReceiptReview() {
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
+  const supported = isSupportedCurrency(currency);
+  const needsRate = supported && currency !== "EUR";
+  const rateState = quoteState?.currency === currency ? quoteState : null;
+  const quote = rateState?.quote;
+
+  useEffect(() => {
+    if (!session || !editing || !needsRate) return;
+    const controller = new AbortController();
+    void accountRequest<Quote>(session, "receipts/exchange-rate?currency=" + encodeURIComponent(currency), {
+      signal: controller.signal,
+    }).then(
+      (result) => { if (!controller.signal.aborted) setQuoteState({ currency, quote: result }); },
+      (reason) => {
+        if (!controller.signal.aborted) setQuoteState({ currency, error: reason instanceof Error ? reason.message : "Could not load the exchange rate." });
+      },
+    );
+    return () => controller.abort();
+  }, [session, editing, currency, needsRate, rateRefresh]);
+
+  function refreshRate() {
+    setError("");
+    setQuoteState(null);
+    setRateRefresh((attempt) => attempt + 1);
+  }
+
   function populate(draft: ReceiptDraft) {
     setReceiptId(newReceiptId());
     setStore(draft.store ?? "");
     setDay(draft.date ?? "");
     setCurrency(draft.currency ?? "");
+    setQuoteState(null);
     setTotal(moneyInput(draft.total_minor));
     setWarnings(draft.warnings);
     setEditHeader(!draft.store || !draft.date || draft.currency !== "EUR" || draft.total_minor === null);
@@ -110,6 +164,7 @@ export function ReceiptReview() {
     ? lines.reduce((sum, line, index) => sum + (line.kind === "discount" ? -1 : 1) * (knownAmounts[index] ?? 0), 0)
     : null;
   const printedTotal = readAmount(total);
+  const convertedTotal = quote && printedTotal ? euroTotal(printedTotal, quote.units_per_eur) : null;
   const needsProductLabel = (line: LineEdit) => line.kind === "product" && line.review;
   const unanswered = lines.filter((line) => needsProductLabel(line) && (!line.name.trim() || !line.category.trim())).length;
   const reviewOrder = lines.map((line, index) => ({ line, index }))
@@ -120,7 +175,8 @@ export function ReceiptReview() {
     if (!session || !receiptId || busy) return;
     setError("");
     if (!store.trim() || !isDate(day) || day > localToday()) return setError("Enter the store and a valid purchase date.");
-    if (currency !== "EUR") return setError("Confirm that this receipt is in EUR. Other currencies are not supported yet.");
+    if (!supported) return setError("Select the currency printed on this receipt.");
+    if (needsRate && !quote) return setError("Load the exchange rate before saving.");
     if (!printedTotal || calculated !== printedTotal || !lines.some((line) => line.kind === "product")) {
       return setError("Enter the printed total and check that all lines, including discounts and deposits, add up to it.");
     }
@@ -144,7 +200,7 @@ export function ReceiptReview() {
     setBusy("save");
     try {
       const saved = await accountRequest<{ id: string }>(session, "receipts", {
-        method: "POST", body: JSON.stringify({ id: receiptId, store: store.trim(), date: day, currency, total_minor: printedTotal, lines: cleanLines }),
+        method: "POST", body: JSON.stringify({ id: receiptId, store: store.trim(), date: day, currency, rate_date: quote?.rate_date, total_minor: printedTotal, lines: cleanLines }),
       });
       refreshLedger();
       router.replace("/receipts?receipt=" + saved.id);
@@ -169,20 +225,23 @@ export function ReceiptReview() {
       {!editing && (
         <section className="mt-5 space-y-3 rounded-2xl border border-[#e4e9e2] bg-white p-5">
           <fieldset disabled={Boolean(busy)} className="grid gap-3 sm:grid-cols-2">
-            <label className={primary + " cursor-pointer focus-within:ring-2 focus-within:ring-[#537d65]"}>
+            <label className={primary + " cursor-pointer gap-2 focus-within:ring-2 focus-within:ring-[#537d65]"}>
+              <Icon name="camera" className="size-5 shrink-0" />
               Take a photo
               <input type="file" accept="image/*" capture="environment" className="sr-only"
                 onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; void scan(file); }} />
             </label>
-            <label className={secondary + " cursor-pointer focus-within:ring-2 focus-within:ring-[#537d65]"}>
+            <label className={secondary + " cursor-pointer gap-2 focus-within:ring-2 focus-within:ring-[#537d65]"}>
+              <Icon name="upload" className="size-5 shrink-0" />
               Upload a photo
               <input type="file" accept={photoTypes} className="sr-only"
                 onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; void scan(file); }} />
             </label>
           </fieldset>
           {busy === "scan" && <ScanProgress />}
-          <button type="button" disabled={Boolean(busy)} className="min-h-11 text-sm font-semibold text-[#31533c] underline"
+          <button type="button" disabled={Boolean(busy)} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[#31533c] underline"
             onClick={() => { setError(""); populate({ store: null, date: localToday(), currency: "EUR", total_minor: null, lines: [], warnings: [] }); }}>
+            <Icon name="pencil" className="size-4 shrink-0" />
             Enter receipt manually
           </button>
           <p className="text-xs text-[#59685e]">JPEG, PNG or WebP · Up to 10 MB. The photo is processed for this scan.</p>
@@ -222,7 +281,7 @@ export function ReceiptReview() {
           <fieldset disabled={Boolean(busy)} className="space-y-4">
             <section className="rounded-2xl border border-[#e4e9e2] bg-white p-3 sm:p-4">
               <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0"><p className="break-words text-sm font-semibold">{store || "Store needed"}</p><p className="text-xs text-[#59685e]">{day || "Date needed"} · {printedTotal === null ? "Total needed" : formatMinor(printedTotal)}</p></div>
+                <div className="min-w-0"><p className="break-words text-sm font-semibold">{store || "Store needed"}</p><p className="text-xs text-[#59685e]">{day || "Date needed"} · {printedTotal === null ? "Total needed" : formatDraftAmount(printedTotal, currency)}</p></div>
                 <button type="button" aria-expanded={editHeader} onClick={() => setEditHeader(!editHeader)} className="min-h-11 shrink-0 px-2 text-xs font-semibold text-[#31533c] underline">{editHeader ? "Hide details" : "Edit receipt details"}</button>
               </div>
               {editHeader && <div className="mt-2 grid grid-cols-2 gap-2">
@@ -230,22 +289,31 @@ export function ReceiptReview() {
               <label className="text-sm font-medium">Purchase date<input required type="date" min="1900-01-01" max={localToday()} className={input} value={day} onChange={(event) => setDay(event.target.value)} /></label>
               <label className="text-sm font-medium">Printed total<input required inputMode="decimal" className={input} value={total} onChange={(event) => setTotal(event.target.value)} /></label>
               <label className="text-sm font-medium">Currency
-                <select required className={input} value={currency} onChange={(event) => setCurrency(event.target.value)}>
-                  <option value="">Confirm currency</option>
-                  {currency && currency !== "EUR" && <option value={currency}>{currency} (unsupported)</option>}
-                  <option value="EUR">EUR</option>
+                <select required className={input} value={currency} onChange={(event) => {
+                  setCurrency(event.target.value);
+                  setQuoteState(null);
+                  setError("");
+                }}>
+                  <option value="" disabled>Choose currency</option>
+                  {currency && !supported && <option value={currency} disabled>{currency} · Select the currency</option>}
+                  {Object.entries(currencies).map(([code, name]) => <option value={code} key={code}>{code} · {name}</option>)}
                 </select>
               </label>
               </div>}
+              {needsRate && <div role="status" className="mt-2 text-xs text-[#59685e]">
+                {quote ? <p>ECB rate · {quote.rate_date} · €1 = {quote.units_per_eur} {currency}</p>
+                  : <p>{rateState?.error ?? "Loading the latest exchange rate…"}</p>}
+                {(quote || rateState?.error) && <button type="button" className="min-h-10 font-semibold text-[#31533c] underline" onClick={refreshRate}>Refresh rate</button>}
+              </div>}
             </section>
-            <datalist id="receipt-categories">{["Bakery", "Fruit", "Vegetables", "Dairy desserts", "Dairy", "Drinks", "Meat", "Groceries", "Other"].map((value) => <option value={value} key={value} />)}</datalist>
+            <datalist id="receipt-categories">{["Bakery", "Fruit", "Vegetables", "Dairy desserts", "Dairy", "Drinks", "Eggs", "Meat", "Fish & seafood", "Pantry", "Music & instruments", "Groceries", "Other"].map((value) => <option value={value} key={value} />)}</datalist>
             <section aria-label="Receipt items" className="overflow-hidden rounded-2xl border border-[#e4e9e2] bg-white">
               <div className="flex justify-between gap-2 border-b border-[#e4e9e2] px-3 py-2 text-xs font-semibold sm:px-4">
                 <span>{lines.length} {lines.length === 1 ? "line" : "lines"}</span>
                 {unanswered > 0 && <span className="text-amber-900">{unanswered} need a name or category</span>}
               </div>
               <ul>
-                {reviewOrder.map(({ line, index }) => <ReviewLine key={line.key} line={line} number={index + 1}
+                {reviewOrder.map(({ line, index }) => <ReviewLine key={line.key} line={line} number={index + 1} currency={currency}
                   onUpdate={(patch) => updateLine(line.key, patch)}
                   onRemove={() => setLines((current) => current.filter((row) => row.key !== line.key))} />)}
               </ul>
@@ -254,10 +322,11 @@ export function ReceiptReview() {
           </fieldset>
           <div className="sticky bottom-20 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e4e9e2] bg-white p-4 shadow-sm lg:bottom-4">
             <div className="text-sm">
-              <p className="font-semibold">Lines add up to {calculated === null ? "—" : formatMinor(calculated)}</p>
-              {printedTotal && calculated !== printedTotal ? <p className="text-xs text-red-800">Printed total: {formatMinor(printedTotal)} · Check line amounts</p> : null}
+              <p className="font-semibold">Lines add up to {calculated === null ? "—" : formatDraftAmount(calculated, currency)}</p>
+              {convertedTotal !== null && <p className="text-xs font-semibold text-[#31533c]">EUR total · {formatMinor(convertedTotal)}</p>}
+              {printedTotal && calculated !== printedTotal ? <p className="text-xs text-red-800">Printed total: {formatDraftAmount(printedTotal, currency)} · Check line amounts</p> : null}
             </div>
-            <button type="submit" className={primary} disabled={Boolean(busy)}>{busy === "save" ? "Saving…" : "Confirm and save"}</button>
+            <button type="submit" className={primary} disabled={Boolean(busy) || !supported || (needsRate && !quote)}>{busy === "save" ? "Saving…" : "Confirm and save"}</button>
             {error && <p role="status" className="w-full text-xs text-red-800">{error}</p>}
           </div>
         </form>
@@ -266,9 +335,10 @@ export function ReceiptReview() {
   );
 }
 
-function ReviewLine({ line, number, onUpdate, onRemove }: {
+function ReviewLine({ line, number, currency, onUpdate, onRemove }: {
   line: LineEdit;
   number: number;
+  currency: string;
   onUpdate: (patch: Partial<LineEdit>) => void;
   onRemove: () => void;
 }) {
@@ -276,7 +346,7 @@ function ReviewLine({ line, number, onUpdate, onRemove }: {
   const [checkPrice, setCheckPrice] = useState(readAmount(line.amount) === null);
   const question = line.kind === "product" && line.review;
   const price = readAmount(line.amount);
-  const shownPrice = price === null ? "Check price" : formatMinor(line.kind === "discount" ? -price : price);
+  const shownPrice = price === null ? "Check price" : formatDraftAmount(line.kind === "discount" ? -price : price, currency);
   const missingAnswer = question && (!line.name.trim() || !line.category.trim());
   const summaryName = line.name || line.original || "New line";
 

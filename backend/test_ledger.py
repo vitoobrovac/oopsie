@@ -23,6 +23,15 @@ class LedgerApiTest(unittest.TestCase):
             self.assertEqual(client.get("/v1/ledger").status_code, 401)
             self.assertEqual(client.delete(f"/v1/transactions/{ENTRY_ID}").status_code, 401)
 
+    def test_yearly_subscriptions_accept_annual_and_installment_schedules(self):
+        from main import SubscriptionInput
+
+        data = {"name": "Car registration", "amount_minor": 25001, "starts_on": "2026-12-01", "active": True}
+        self.assertEqual(SubscriptionInput(**data, cadence="yearly").cadence, "yearly")
+        self.assertEqual(SubscriptionInput(**data, cadence="yearly_split").amount_minor, 25001)
+        with self.assertRaises(ValueError):
+            SubscriptionInput(**{**data, "amount_minor": 11}, cadence="yearly_split")
+
     def test_planning_uses_owner_token_and_validated_cents(self):
         original_client = httpx.AsyncClient
         budget = {"category": "Groceries", "amount_minor": 42000}

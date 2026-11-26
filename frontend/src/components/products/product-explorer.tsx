@@ -65,11 +65,15 @@ export function ProductExplorer() {
               </button>
             ))}
           </div>
-          {matches.length > visibleProducts && <button onClick={() => setVisibleProducts(visibleProducts + 8)} className="mt-1 min-h-11 px-2 text-sm font-semibold text-[#31533c]">See more products ({matches.length - visibleProducts})</button>}
+          {matches.length > visibleProducts && <button onClick={() => setVisibleProducts(visibleProducts + 8)} className="mt-3 inline-flex min-h-11 items-center rounded-xl border border-[#dce4d9] bg-white px-3 text-sm font-semibold text-[#31533c]">See more products ({matches.length - visibleProducts})</button>}
           {selected && <ProductStats key={selected.key} group={selected} />}
           {!matches.length && <p className="mt-5 text-sm text-[#59685e]">No products match “{query}”.</p>}
         </>}
-      <Link href="/receipts" className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-[#31533c]">Browse all receipts →</Link>
+      <div className="mt-6 border-t border-[#dce4d9] pt-4">
+        <Link href="/receipts" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#eaf1e7] px-3 text-sm font-semibold text-[#31533c]">
+          <Icon name="cart" className="size-4" />Browse all receipts <span aria-hidden="true">→</span>
+        </Link>
+      </div>
     </div>
   );
 }

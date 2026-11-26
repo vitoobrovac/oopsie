@@ -8,9 +8,9 @@ In Supabase SQL Editor, copy the **contents** of `supabase/migrations/002_privat
 
 Install the updated `backend/requirements.txt` and restart FastAPI. The API runs PaddleOCR on JPEG, PNG or WebP photos up to 10 MB. Its first scan may download the free models. The photo is used during processing and review. The confirmed receipt and product lines are stored in Supabase.
 
-In oopsie, open **Receipts → Scan a receipt**. Upload a photo, review the draft and select **Confirm and save**. Keep **Remember this name and category** checked for corrections you want reused for the same printed product label at that store. The confirmed receipt and its ledger expense are saved together.
+In oopsie, open **Receipts → Scan a receipt**. Upload a photo, review the draft and select **Confirm and save**. Keep **Remember this name and category** checked for corrections you want reused for the same printed product label at that store. The confirmed receipt and its ledger expense are saved together. Migration 006 categorizes new receipts with exclusively music gear product lines as Music & instruments in the ledger and charts.
 
-Recognized lines show a compact summary. Tap **Edit** when a suggestion is wrong. When a label is unrecognized, provide a product name and category. Oopsie remembers the answer for the signed-in account and the same store on confirmation.
+Recognized lines show a compact summary. The scanner separates column headers from product rows, checks the sum against the printed total, and uses a shared catalog to suggest names and categories. Select the receipt's currency when it differs from EUR. oopsie shows the latest published European Central Bank reference rate and the converted total, then saves reconciled EUR amounts. A bare dollar symbol requires a currency choice. The original amounts are shown in the draft and the saved receipt contains EUR amounts. Tap **Edit** when a suggestion is wrong. When a label is unrecognized, provide a product name and category. Oopsie remembers the answer for the signed-in account and the same store on confirmation.
 
 For a phone, open an accessible app URL over HTTPS and allow the corresponding return URL in Supabase Auth. By default the frontend forwards API requests through its own origin. When deploying separately, set `LUMA_API_PROXY_URL` on the frontend to the backend address, or configure the public API URL and matching CORS origin described below.
 
@@ -55,11 +55,11 @@ Budgets, Goals and Subscriptions use the FastAPI service and Supabase by default
 
 For an isolated browser preview, set `NEXT_PUBLIC_PLANNING_STORAGE=preview` in `frontend/.env.local` and restart Next.js in development mode. This also lets you view any previous preview records stored in that browser. Preview records are scoped to the signed-in account. Due preview subscriptions appear in the local ledger when you open the app or return to the tab. Clearing browser data removes the preview plans. Normal transactions and receipts continue to use the configured API. Production builds always use the API and Supabase.
 
-1. Use a separate Supabase test project or your local Supabase stack. In a fresh test database, run migrations 001, 002 and 003 in order. In the dashboard SQL editor, paste the contents of each file and run it.
+1. Use a separate Supabase test project or your local Supabase stack. In a fresh test database, run migrations 001 through 006 in order. In the dashboard SQL editor, paste the contents of each file and run it.
 2. Set the Supabase URL and publishable key in both your local API and frontend to the test project's values. Set the frontend API URL to http://localhost:8000 and restart both development servers. Create a test login and open http://localhost:3000.
 3. Open the four-square menu. In Budgets, set a Groceries limit and create a grocery transaction to see it update. In Goals, create a target and set Saved so far. In Subscriptions, add a weekly or monthly expense due today and check Transactions. Reload and verify there is still only one entry for today. You can pause or delete a schedule while keeping its recorded expenses.
 
-Subscription dates use Europe/Berlin. Weekly schedules use the same weekday. Monthly schedules keep the original day and move to the last day in shorter months. Resuming a paused schedule skips occurrences during the pause. A schedule can use an older date as its anchor, and starts posting with its next due date. The API also catches up due payments when the ledger or subscriptions are loaded.
+Subscription dates use Europe/Berlin. Weekly schedules use the same weekday. Monthly schedules keep the original day and move to the last day in shorter months. Yearly schedules can record the annual amount on the same date each year, or spread it across 12 monthly ledger entries from the chosen start date. A February 29 anniversary uses February 28 in shorter years. If the annual amount does not divide evenly, the earliest entries get the extra cents so the total is exact. Apply migration 004 for yearly schedules and 005 for the separate Yearly expenses ledger category. Migration 005 categorizes newly posted entries. Previously recorded entries keep their saved categories. Resuming a paused schedule skips occurrences during the pause. A schedule can use an older date as its anchor, and starts posting with its next due date. The API also catches up due payments when the ledger or subscriptions are loaded.
 
 To post due payments even with the app closed, enable Supabase Cron under Integrations on the target database. Then run this in that project's SQL Editor. The named job checks for payments every hour and uses the database posting record to avoid duplicates.
 
@@ -67,7 +67,7 @@ To post due payments even with the app closed, enable Supabase Cron under Integr
 select cron.schedule(
   'oopsie-post-subscriptions',
   '5 * * * *',
-  $select oopsie_private.post_due_subscriptions(null, timezone('Europe/Berlin', now())::date)$
+  $$select oopsie_private.post_due_subscriptions(null, timezone('Europe/Berlin', now())::date)$$
 );
 ~~~
 
@@ -82,7 +82,38 @@ select cron.schedule(
 
 [Supabase production checklist](https://supabase.com/docs/guides/deployment/going-into-prod) · [Next.js hosting guide](https://nextjs.org/docs/app/guides/self-hosting)
 
-## Publish a small private beta on Render
+## Move the website to a Render Static Site
+
+Create the static site alongside the existing website so current testers can keep using the old link during verification. Keep the existing FastAPI Web Service and Supabase project.
+
+1. Push the latest code. In Render choose **New → Static Site**, connect the repository and select the same branch as your existing services.
+2. Enter these settings.
+
+   | Setting | Value |
+   | --- | --- |
+   | Root Directory | `frontend` |
+   | Build Command | `npx --yes pnpm@11.25.0 install --frozen-lockfile && npx --yes pnpm@11.25.0 build` |
+   | Publish Directory | `out` |
+   | Environment variables | `NODE_VERSION=24`, `OOPSIE_STATIC_EXPORT=1`, plus the three public variables below |
+
+   Copy `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from the existing website in Render. Set `NEXT_PUBLIC_LUMA_API_URL` to the public HTTPS address of your existing API service. The static build rejects a localhost API URL so it cannot accidentally ship one to phones. Next.js produces a separate HTML page for each route, so a catch-all redirect to the home page is unnecessary.
+3. On the API Web Service, set `LUMA_WEB_ORIGIN` to both website origins separated by a comma, for example `https://old-site.onrender.com,https://new-site.onrender.com`. Deploy the latest API code. In Supabase **Authentication → URL Configuration**, add the new website as an allowed redirect and keep the old URL during testing. When the new site is verified, make it the Site URL. If your Google OAuth client lists the website in **Authorized JavaScript origins**, add the new origin there. Keep its existing Supabase callback URL.
+4. On a phone, open the new URL in a private tab. Test sign-in, opening a receipt from product history, a full reload on a page like `/budgets/`, and photo upload. Share the new URL after verification. Keep the old website available until everyone has switched.
+
+The CDN serves the frontend immediately. The API remains a separate Web Service. A Free API service can still take about a minute to wake. To remove that wait for ledger requests, change the **API service's own instance type** to an always-on paid instance in Render, and check its OCR memory usage after deploying.
+
+For a local export check, run this from `frontend` in PowerShell. Set the API URL to the HTTPS address that the static site should call.
+
+~~~powershell
+$env:OOPSIE_STATIC_EXPORT = "1"
+$env:NEXT_PUBLIC_LUMA_API_URL = "https://your-api.onrender.com"
+pnpm build
+Remove-Item Env:OOPSIE_STATIC_EXPORT, Env:NEXT_PUBLIC_LUMA_API_URL
+~~~
+
+[Render static site deployment](https://render.com/docs/deploy-nextjs-app#deploy-as-a-static-site) · [Render Free Web Services](https://render.com/docs/free#spinning-down-on-idle)
+
+## Publish a small private beta with two Web Services
 
 1. Push this project to a **private GitHub repository**. Review the files about to be committed. Include the app, scanner code and catalog, and SQL migrations. Keep your environment files, local dependencies, receipt photos, and OCR results on your computer.
 2. In Render, connect that repo to two Web Services. The API uses the **repository root** because it needs both `backend` and `experiments/receipt-ocr`. The website uses `frontend`.
@@ -95,8 +126,8 @@ select cron.schedule(
    | Start Command | `node node_modules/next/dist/bin/next start -H 0.0.0.0` | `python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT` |
 
    Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `NEXT_PUBLIC_LUMA_API_URL` on the website. Use the API's Render HTTPS URL for the last value. On the API set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `LUMA_WEB_ORIGIN`, with the website's HTTPS origin for the last value. Redeploy the frontend after changing public environment variables.
-3. Apply migrations 001, 002 and 003 in order on a fresh Supabase project. On an existing project that already has 001 and 002, apply 003. Enable the Cron job above when releasing subscriptions. Add the website's HTTPS URL as the Supabase Auth Site URL and an allowed redirect. In Google Cloud add the live website origin to the OAuth client and keep the Supabase callback under Authorized redirect URIs.
+3. Apply migrations 001 through 006 in order on a fresh Supabase project. On an existing project, apply any missing migrations in order, including 004 for yearly subscriptions. Enable the Cron job above when releasing subscriptions. Add the website's HTTPS URL as the Supabase Auth Site URL and an allowed redirect. In Google Cloud add the live website origin to the OAuth client and keep the Supabase callback under Authorized redirect URIs.
 4. Set up and verify the few tester accounts first. In Supabase Auth, turn off **Allow new users to sign up** before sharing the link. Existing accounts can still sign in, including your own. Verify that an account outside your tester list cannot create a new account.
-5. On the HTTPS URL, test signing in, scanning a receipt, fixing one name, saving, and finding the item on your phone. Verify that a second account sees only its own ledger. A free API web service can go idle. Allow for a slow first scan and check memory use with real receipt photos.
+5. On the HTTPS URL, test signing in, scanning a receipt, fixing one name, saving, and finding the item on your phone. Verify that a second account sees only its own ledger. Render Free Web Services can go idle, including the frontend and API. For an instant first page, verify a static frontend build and serve it on a CDN. Keep the API active if ledger data also needs to load immediately. Check memory use with real receipt photos.
 
 [Render Next.js guide](https://render.com/docs/deploy-nextjs-app) · [Render FastAPI guide](https://render.com/docs/deploy-fastapi) · [Supabase sign-up settings](https://supabase.com/docs/guides/auth/general-configuration)

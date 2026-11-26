@@ -10,14 +10,22 @@ from pathlib import Path
 from statistics import median
 
 AMOUNT = r"[+-]?\d+[.,]\d{2}"
-PRICE = re.compile(rf"^\s*({AMOUNT})\s*([A-Z])?\s*$")
-INLINE_PRICE = re.compile(rf"^(.+?\D)\s+({AMOUNT})\s*([A-Z])?\s*$")
+PRICE = re.compile(rf"^\s*[€$£]?\s*({AMOUNT})\s*[€$£]?\s*([A-Z])?\s*$")
+INLINE_PRICE = re.compile(rf"^(.+?\D)\s+[€$£]?\s*({AMOUNT})\s*[€$£]?\s*([A-Z])?\s*$")
 DATE = re.compile(r"\b(?:(\d{4})-(\d{2})-(\d{2})|(\d{1,2})[./-](\d{1,2})[./-](\d{4}))\b")
 TIME = re.compile(r"\b(?:[01]\d|2[0-3]):[0-5]\d\b")
 TOTAL = re.compile(r"^(?:summe|gesamt(?:summe|betrag)?|endbetrag|(?:grand\s+)?total(?:\s+due)?|ukupno)\b", re.I)
 DISCOUNT = re.compile(r"^(?:mengen\s*vorteil|rabatt|coupon|rabat|popust|discount)", re.I)
 DEPOSIT = re.compile(r"^(?:pfand|deposit|povratna naknada)\b", re.I)
 QUANTITY = re.compile(rf"^(\d+(?:[.,]\d+)?)\s*([x×])?\s+({AMOUNT})$", re.I)
+COLUMN_HEADER = re.compile(r"^(?:description|item(?:s ordered|s| description)?|product(?:s| description)?|article|artikel|opis|naziv|qty|quantity|price|amount|preis|cijena)\s*[:.]?$", re.I)
+ORDER_SUMMARY = re.compile(r"^(?:merchandise value|net amount|subtotal)\b", re.I)
+ITEM_NUMBER = re.compile(r"^(?:item\s*(?:no\.|number|#)|sku\s*[:#])", re.I)
+ITEM_QUANTITY = re.compile(r"^(\d+)\s*[x×]\s+(?=\D)", re.I)
+PAYMENT = re.compile(r"^(?:eftpos|change|cash tendered|subtotal|payment|cash payment|card payment|vat total|tax total)\b", re.I)
+CURRENCIES = {"€": "EUR", "$": "$", "£": "GBP", **{code: code for code in ("EUR", "USD", "GBP", "AUD", "CAD", "NZD", "CHF")}}
+CURRENCY = re.compile(r"(?<!\w)(EUR|USD|GBP|AUD|CAD|NZD|CHF)(?!\w)|[€$£]")
+PACK_COUNT = re.compile(r"\b(\d+)\s*(?:pk|pack|pcs)\b", re.I)
 PACK = re.compile(r"(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l)\b", re.I)
 
 
@@ -72,9 +80,16 @@ def entry_type(name: str) -> str:
     return "product"
 
 
+def is_metadata(text: str) -> bool:
+    return bool(COLUMN_HEADER.fullmatch(text) or PAYMENT.match(text)
+                or ORDER_SUMMARY.match(text) or ITEM_NUMBER.match(text) or text.upper() in CURRENCIES)
+
+
 def pick_store(lines: list[Region], first_body_y: float) -> str | None:
     candidates = [
         line for line in lines if line.y < first_body_y
+        and not is_metadata(line.text)
+        and len(line.text.split()) <= 7 and not line.text.endswith((".", ",", "!", "?"))
         and len(re.findall(r"[^\W\d_]", line.text)) >= 4
         and not re.search(r"\d|straße|strasse|street|route|tel[:.]", line.text, re.I)
     ]
@@ -85,6 +100,8 @@ def pick_store(lines: list[Region], first_body_y: float) -> str | None:
 def split_body(body: list[Region], price_column: float):
     names, prices, details = [], [], []
     for line in body:
+        if is_metadata(line.text):
+            continue
         direct = PRICE.fullmatch(line.text)
         inline = INLINE_PRICE.fullmatch(line.text)
         if direct and line.x >= price_column:
@@ -93,8 +110,7 @@ def split_body(body: list[Region], price_column: float):
             names.append((line, inline[1].strip()))
             prices.append((line.y, cents(inline[2]), inline[3], line.confidence))
         elif line.x < price_column and len(re.findall(r"[^\W\d_]", line.text)) >= 3:
-            if line.text.upper() not in {"EUR", "USD", "GBP", "ITEM", "ITEMS", "PRICE", "ARTICLE"}:
-                names.append((line, line.text))
+            names.append((line, line.text))
         elif line.x < price_column:
             details.append(line)
     return names, prices, details
@@ -174,10 +190,15 @@ def parse_receipt(payload: dict) -> dict:
     purchased_on, clock, date_y = find_date(lines)
     total_label = next((line for line in reversed(lines) if TOTAL.match(line.text)), None)
     total_y = total_label.y if total_label else float("inf")
-    currency_header = next((line for line in lines if line.text.upper() in {"EUR", "USD", "GBP"} and line.y < total_y), None)
-    first_body_y = (date_y + height * 0.55 if date_y is not None
-                    else currency_header.y - height * 0.3 if currency_header else -float("inf"))
-    body = [line for line in lines if first_body_y < line.y < total_y - height * 0.8
+    before_total = [line for line in lines if line.y < total_y]
+    first_amount_y = next((line.y for line in before_total if PRICE.fullmatch(line.text) or INLINE_PRICE.fullmatch(line.text)), total_y)
+    headers = [line.y for line in before_total if line.y < first_amount_y
+               and (COLUMN_HEADER.fullmatch(line.text) or line.text.upper() in CURRENCIES)]
+    if date_y is not None and date_y < first_amount_y:
+        headers.append(date_y)
+    first_body_y = max(headers, default=-float("inf"))
+    summary_y = next((line.y for line in lines if first_body_y < line.y < total_y and ORDER_SUMMARY.match(line.text)), total_y)
+    body = [line for line in lines if first_body_y < line.y < summary_y - height * 0.8
             and not re.match(r"^(?:ihre ersp|savings|usted ahorr|u[šs]teda)", line.text, re.I)]
     left = min((line.left for line in body), default=0)
     right = max((line.right for line in body), default=1)
@@ -198,12 +219,20 @@ def parse_receipt(payload: dict) -> dict:
     names, prices, details = split_body(body, price_column)
     matches, unmatched = align_rows(names, prices, height)
     items, adjustments, warnings = [], [], []
+    first_match = min(matches, default=None)
+    if not headers and first_match is not None:
+        first_body_y = names[first_match][0].y
     for index, (line, name) in enumerate(names):
+        if not headers and first_match is not None and index < first_match:
+            continue
         kind = entry_type(name)
         match_price = matches.get(index)
         amount = match_price[1] if match_price else None
         next_y = names[index + 1][0].y if index + 1 < len(names) else total_y
         quantity, unit_price, source = infer_quantity(details, line, next_y, amount, height)
+        printed_count = ITEM_QUANTITY.match(name)
+        if quantity is None and printed_count and int(printed_count[1]) > 0:
+            quantity, source = int(printed_count[1]), "printed"
         entry = {"name": name, "line_total_minor": amount}
         if kind != "discount":
             entry.update(quantity=quantity, quantity_source=source, unit_price_minor=unit_price)
@@ -217,7 +246,10 @@ def parse_receipt(payload: dict) -> dict:
             if Decimal(str(quantity)) * unit_price != amount:
                 warnings.append(f"Quantity and unit price do not match the line total for {name}.")
         if kind == "product":
+            count = PACK_COUNT.search(name)
             pack = PACK.search(name)
+            if amount is not None and quantity is None and (pack or count or re.search(r"\beach\b", name, re.I)):
+                entry.update(quantity=int(count[1]) if count and not pack else 1, quantity_source="package")
             if pack:
                 size = Decimal(pack[1].replace(",", "."))
                 unit = pack[2].lower()
@@ -229,15 +261,16 @@ def parse_receipt(payload: dict) -> dict:
         else:
             adjustments.append({"type": kind, **entry})
 
-    currency = currency_header.text.upper() if currency_header else None
-    if not currency:
-        money = next((match for line in lines if (match := re.search(r"\b(EUR|USD|GBP)\b|([€$£])", line.text))), None)
-        if money:
-            currency = money[1] or {"€": "EUR", "$": "USD", "£": "GBP"}[money[2]]
+    currencies = [match[0] for line in lines if line.y <= total_y + height * 1.35
+                  for match in CURRENCY.finditer(line.text.upper())]
+    # A bare dollar sign does not identify the country.
+    currency = CURRENCIES[currencies[0]] if currencies else None
+    if currency == "$":
+        currency = next((mark for mark in currencies if mark in {"USD", "AUD", "CAD", "NZD"}), "$")
     store = pick_store(lines, first_body_y)
     computed = sum(entry["line_total_minor"] for entry in items + adjustments if entry["line_total_minor"] is not None)
     if total is None or total != computed:
-        warnings.append("The matched line amounts do not verify the printed grand total.")
+        warnings.append("The extracted line amounts do not match the printed total. Check the original before saving.")
     if unmatched:
         warnings.append("Some amounts could not be matched to a line.")
     if not all((store, purchased_on, currency)):

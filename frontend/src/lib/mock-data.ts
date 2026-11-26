@@ -1,6 +1,6 @@
 export const navigation = [
   { label: "Overview", icon: "grid" },
   { label: "Transactions", icon: "arrows" },
-  { label: "Products", icon: "cart" },
+  { label: "Insights", icon: "pie" },
 ] as const;
 

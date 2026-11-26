@@ -10,7 +10,7 @@ import { usePathname } from "next/navigation";
 import { useId, useState } from "react";
 
 export function Sidebar() {
-  const pathname = usePathname();
+  const pathname = usePathname().replace(/\/$/, "") || "/";
   const [menuOpen, setMenuOpen] = useState(false);
   return <aside className="border-b border-[#e6e9e4] bg-[#fcfdfb] px-4 py-4 lg:min-h-screen lg:border-b-0 lg:border-r lg:px-5 lg:py-7">
     <div className="flex items-center justify-between"><Link className="flex items-center gap-2.5 font-semibold tracking-[-0.04em]" href="/"><BrandLogo compact /><span className="text-xl">oopsie</span></Link><div className="flex items-center gap-1"><AccountButton /><button onClick={() => setMenuOpen(true)} className="grid size-9 place-items-center rounded-xl text-[#526058] hover:bg-[#edf1eb]" aria-label="Open more pages"><Icon name="grid" className="size-5" /></button></div></div>
@@ -27,7 +27,7 @@ const morePages: { href: string; label: string; description: string; icon: IconN
   { href: "/receipts", label: "Receipts", description: "Browse every saved receipt", icon: "cart" },
   { href: "/budgets", label: "Budgets", description: "Plan category spending", icon: "pie" },
   { href: "/goals", label: "Goals", description: "Track what you’re saving for", icon: "target" },
-  { href: "/insights", label: "Insights", description: "Find useful spending patterns", icon: "sparkles" },
+  { href: "/products", label: "Products", description: "Search what you bought", icon: "search" },
   { href: "/subscriptions", label: "Subscriptions", description: "Track recurring expenses", icon: "refresh" },
   { href: "/challenges", label: "Challenges", description: "Save together · Preview", icon: "target" },
   { href: "/settings", label: "Settings", description: "Language, currency and profile", icon: "settings" },

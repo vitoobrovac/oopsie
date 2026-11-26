@@ -1,9 +1,10 @@
-import type { ManualEntry } from "./ledger";
+import { subscriptionCategory, yearlyExpenseCategory, type ManualEntry } from "./ledger";
 
 export type Plan = "budgets" | "goals" | "subscriptions";
 export type Budget = { id: string; category: string; amount_minor: number };
 export type Goal = { id: string; name: string; amount_minor: number; saved_minor: number };
-export type Subscription = { id: string; name: string; amount_minor: number; starts_on: string; next_due: string; cadence: "weekly" | "monthly"; active: boolean };
+export type Cadence = "weekly" | "monthly" | "yearly" | "yearly_split";
+export type Subscription = { id: string; name: string; amount_minor: number; starts_on: string; next_due: string; cadence: Cadence; active: boolean };
 export type PlanItem = Budget | Goal | Subscription;
 
 type LocalPlanning = {
@@ -25,8 +26,22 @@ function nextDue(anchor: string, cadence: Subscription["cadence"], from: string)
   const originalDay = Number(anchor.slice(8));
   const [year, month] = from.split("-").map(Number);
   const due = (index: number) => new Date(Date.UTC(year, index, Math.min(originalDay, new Date(Date.UTC(year, index + 1, 0)).getUTCDate())));
-  const current = due(month - 1);
-  return (current.getTime() >= after ? current : due(month)).toISOString().slice(0, 10);
+  const index = cadence === "yearly" ? Number(anchor.slice(5, 7)) - 1 : month - 1;
+  const step = cadence === "yearly" ? 12 : 1;
+  const current = due(index);
+  return (current.getTime() >= after ? current : due(index + step)).toISOString().slice(0, 10);
+}
+
+export function isYearlyCadence(cadence: Cadence) {
+  return cadence === "yearly" || cadence === "yearly_split";
+}
+
+export function scheduledPayment(subscription: Subscription) {
+  if (subscription.cadence !== "yearly_split") return subscription.amount_minor;
+  const [dueYear, dueMonth] = subscription.next_due.split("-").map(Number);
+  const [firstYear, firstMonth] = subscription.starts_on.split("-").map(Number);
+  const installment = ((dueYear - firstYear) * 12 + dueMonth - firstMonth) % 12;
+  return Math.floor(subscription.amount_minor / 12) + Number(installment < subscription.amount_minor % 12);
 }
 
 export function localPlanningKey(owner: string) {
@@ -53,7 +68,7 @@ function postDue(data: LocalPlanning, today: string) {
       const date = subscription.next_due;
       const id = "local-subscription:" + subscription.id + ":" + date;
       if (!(id in data.postings)) {
-        data.postings[id] = { id, date, name: subscription.name, category: "Subscriptions", merchant: "", amountMinor: -subscription.amount_minor };
+        data.postings[id] = { id, date, name: subscription.name, category: isYearlyCadence(subscription.cadence) ? yearlyExpenseCategory : subscriptionCategory, merchant: "", amountMinor: -scheduledPayment(subscription) };
       }
       const tomorrow = new Date(Date.parse(date) + dayMs).toISOString().slice(0, 10);
       subscription.next_due = nextDue(subscription.starts_on, subscription.cadence, tomorrow);

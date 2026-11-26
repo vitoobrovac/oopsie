@@ -14,12 +14,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ValidationError, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
+from exchange_rates import Currency, RateUnavailable, convert_receipt, latest_rate
 from receipt_pipeline import analyze
 
 app = FastAPI(title="oopsie ledger API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.environ.get("LUMA_WEB_ORIGIN", "http://localhost:3000")],
+    allow_origins=[
+        origin.strip().rstrip("/")
+        for origin in os.environ.get("LUMA_WEB_ORIGIN", "http://localhost:3000").split(",")
+        if origin.strip()
+    ],
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
@@ -67,8 +72,14 @@ class GoalInput(PlanningInput):
 class SubscriptionInput(PlanningInput):
     name: Text
     starts_on: Date = Field(ge=Date(1900, 1, 1), le=Date(9999, 1, 1))
-    cadence: Literal["weekly", "monthly"]
+    cadence: Literal["weekly", "monthly", "yearly", "yearly_split"]
     active: bool
+
+    @model_validator(mode="after")
+    def validate_installments(self):
+        if self.cadence == "yearly_split" and self.amount_minor < 12:
+            raise ValueError("The yearly amount must be at least €0.12 to split it into 12 monthly entries.")
+        return self
 
 
 Plan = Literal["budgets", "goals", "subscriptions"]
@@ -105,7 +116,8 @@ class ReceiptInput(BaseModel):
     id: UUID
     store: Text
     date: Date = Field(ge=Date(1900, 1, 1))
-    currency: Literal["EUR"]
+    currency: Currency
+    rate_date: Date | None = None
     total_minor: int = Field(strict=True, ge=1, le=99999999999)
     lines: list[ReceiptLine] = Field(min_length=1, max_length=300)
 
@@ -156,14 +168,15 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
             if path in {"budgets", "savings_goals", "subscriptions", "rpc/sync_my_subscriptions"}:
                 raise HTTPException(503, "Planning needs the private planning migration in your development database.")
             raise HTTPException(503, "Receipt tables are missing. Apply the receipt migration in Supabase.")
+        if code == "23514" and path == "subscriptions" and kwargs.get("json", {}).get("cadence") in {"yearly", "yearly_split"}:
+            raise HTTPException(503, "Apply migration 004 in Supabase to enable yearly subscriptions.")
         if code == "23505" and path == "budgets":
             raise HTTPException(409, "A budget already exists for this category.")
         raise HTTPException(502, "The database could not complete this request.")
     return response.json() if response.content else None
 
 
-@app.get("/v1/ledger")
-async def list_ledger(client: Database):
+async def ledger_entries(client: httpx.AsyncClient):
     await request(client, "POST", "rpc/sync_my_subscriptions", json={}, allow_missing=True)
     entries = []
     while True:
@@ -174,7 +187,15 @@ async def list_ledger(client: Database):
         entries.extend(page)
         if len(page) < PAGE_SIZE:
             break
-    preferences = await request(client, "GET", "ledger_preferences", params={"select": "monthStartDay"})
+    return entries
+
+
+@app.get("/v1/ledger")
+async def list_ledger(client: Database):
+    entries, preferences = await asyncio.gather(
+        ledger_entries(client),
+        request(client, "GET", "ledger_preferences", params={"select": "monthStartDay"}),
+    )
     return {"entries": entries, "monthStartDay": preferences[0]["monthStartDay"] if preferences else 1}
 
 
@@ -307,10 +328,42 @@ async def list_receipts(client: Database):
             return receipts
 
 
+async def receipt_rate(currency: Currency):
+    try:
+        return await latest_rate(currency)
+    except RateUnavailable as exc:
+        raise HTTPException(503, "The exchange rate is temporarily unavailable. Try again shortly.") from exc
+
+
+@app.get("/v1/receipts/exchange-rate")
+async def get_receipt_rate(currency: Currency, credentials: Credentials):
+    if credentials is None:
+        raise HTTPException(401, "Sign in to continue.")
+    if currency == "EUR":
+        raise HTTPException(422, "EUR receipts do not need conversion.")
+    quote = await receipt_rate(currency)
+    return {"rate_date": quote.published_on, "units_per_eur": format(quote.units_per_eur, "f")}
+
+
 @app.post("/v1/receipts", status_code=201)
 async def save_receipt(receipt: ReceiptInput, client: Database):
+    total = receipt.total_minor
+    lines = [line.model_dump(mode="json") for line in receipt.lines]
+    if receipt.currency != "EUR":
+        quote = await receipt_rate(receipt.currency)
+        if receipt.rate_date != quote.published_on:
+            raise HTTPException(409, "Refresh the exchange rate and check the new EUR total before saving.")
+        try:
+            total, amounts = convert_receipt([line.amount_minor for line in receipt.lines], quote.units_per_eur)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if not 0 < total <= 99999999999 or any(abs(amount) > 99999999999 for amount in amounts):
+            raise HTTPException(422, "The converted amount is outside the supported EUR range.")
+        for line, amount in zip(lines, amounts, strict=True):
+            line["amount_minor"] = amount
+
     receipt_id = await request(client, "POST", "rpc/save_receipt", json={
         "receipt_id": str(receipt.id), "merchant": receipt.store, "receipt_date": receipt.date.isoformat(),
-        "total": receipt.total_minor, "lines": [line.model_dump(mode="json") for line in receipt.lines],
+        "total": total, "lines": lines,
     })
     return {"id": receipt_id}

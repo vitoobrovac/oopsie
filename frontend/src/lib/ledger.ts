@@ -1,8 +1,12 @@
 import { formatMinor, formatReceiptDate } from "./finance-format";
 
+export const subscriptionCategory = "Subscriptions";
+export const yearlyExpenseCategory = "Yearly expenses";
+
 export const expenseCategories = [
   ["Groceries", "Groceries"], ["Dinner", "Dining out"], ["Fun", "Entertainment"],
-  ["Transport", "Transport"], ["Housing", "Housing"], ["Subscriptions", "Subscriptions"],
+  ["Transport", "Transport"], ["Housing", "Housing"], [subscriptionCategory, subscriptionCategory],
+  [yearlyExpenseCategory, yearlyExpenseCategory], ["Music & instruments", "Music & instruments"],
 ] as const;
 
 export type ManualEntry = {
@@ -75,12 +79,12 @@ export function ledgerReport(entries: ManualEntry[], day: number, today: string)
     range: range(start, nextStart),
     chart: labels.map((date) => ({ start: date, month: date.slice(0, 7), ...getPeriod(date) })),
     cards: [
-      { title: "Overall spent", value: formatMinor(summarize(rows).spent), note: "All recorded activity" },
-      { title: "Spent this period", value: formatMinor(current.spent), note: "Through " + formatReceiptDate(today) },
-      { title: "Spent last period", value: formatMinor(previous.spent), note: range(previousStart, start) },
-      { title: "Income this period", value: formatMinor(current.income), note: "Recorded income" },
-      { title: "Left this period", value: formatMinor(current.net), note: "Income minus spending so far" },
-    ],
+      { id: "overall", title: "Overall spent", value: formatMinor(summarize(rows).spent), note: "All recorded activity" },
+      { id: "current", title: "Spent this period", value: formatMinor(current.spent), note: "Through " + formatReceiptDate(today) },
+      { id: "previous", title: "Spent last period", value: formatMinor(previous.spent), note: range(previousStart, start) },
+      { id: "income", title: "Income this period", value: formatMinor(current.income), note: "Recorded income" },
+      { id: "balance", title: "Left this period", value: formatMinor(current.net), note: "Income minus spending so far" },
+    ] as const,
     categories(period = start) {
       const totals = new Map<string, number>();
       for (const row of grouped.get(period) ?? []) {

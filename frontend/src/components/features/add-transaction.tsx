@@ -69,13 +69,24 @@ function TransactionDialog({ onClose, onSave }: { onClose: () => void; onSave: (
       </div>
       {!manual ? (
         <div className="mt-2 grid gap-2">
-          <Link href="/receipts/new" onClick={dismissModal} className="rounded-xl border border-[#dce4d9] p-4 text-left">
-            <span className="block font-semibold">Scan a receipt</span>
-            <span className="text-xs text-[#59685e]">Take a photo or upload one</span>
+          <Link href="/receipts/new" onClick={dismissModal} className="flex items-center justify-between gap-3 rounded-xl border border-[#dce4d9] p-4 text-left">
+            <span>
+              <span className="block font-semibold">Scan a receipt</span>
+              <span className="block text-xs text-[#59685e]">Take a photo or upload one</span>
+            </span>
+            <span className="flex shrink-0 gap-2 rounded-lg bg-[#edf3e8] p-2 text-[#31533c]">
+              <Icon name="camera" className="size-5" />
+              <Icon name="upload" className="size-5" />
+            </span>
           </Link>
-          <button onClick={() => { setError(""); setManual(true); }} className="rounded-xl border border-[#dce4d9] p-4 text-left">
-            <span className="block font-semibold">Add manually</span>
-            <span className="text-xs text-[#59685e]">Record an expense or income</span>
+          <button onClick={() => { setError(""); setManual(true); }} className="flex items-center justify-between gap-3 rounded-xl border border-[#dce4d9] p-4 text-left">
+            <span>
+              <span className="block font-semibold">Add manually</span>
+              <span className="block text-xs text-[#59685e]">Record an expense or income</span>
+            </span>
+            <span className="shrink-0 rounded-lg bg-[#edf3e8] p-2 text-[#31533c]">
+              <Icon name="pencil" className="size-5" />
+            </span>
           </button>
           {error && <p role="status" className="text-sm text-[#59685e]">{error}</p>}
         </div>

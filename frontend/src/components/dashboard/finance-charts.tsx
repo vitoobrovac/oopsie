@@ -1,4 +1,5 @@
 import { formatMinor, monthLabel } from "@/lib/finance-format";
+import { subscriptionCategory, yearlyExpenseCategory } from "@/lib/ledger";
 
 const colors = ["#24594b", "#9fc66d", "#d59b6c", "#8893bc", "#c0839b", "#5b8ba0"];
 
@@ -34,10 +35,15 @@ export function MonthlyChart({ data, showIncome = false }: { data: { month: stri
 export function CategoryChart({ categories, period }: { categories: { label: string; amount: number }[]; period: string }) {
   const total = categories.reduce((sum, category) => sum + category.amount, 0);
   let covered = 0;
-  const stops = categories.map(({ amount }, index) => {
+  const segments = categories.map((category, index) => ({
+    ...category,
+    color: category.label === yearlyExpenseCategory ? "#7c4ba1"
+      : category.label === subscriptionCategory ? "#236293" : colors[index % colors.length],
+  }));
+  const stops = segments.map(({ amount, color }) => {
     const start = covered;
     covered += amount / total * 100;
-    return colors[index % colors.length] + " " + start + "% " + covered + "%";
+    return color + " " + start + "% " + covered + "%";
   });
 
   return (
@@ -50,9 +56,9 @@ export function CategoryChart({ categories, period }: { categories: { label: str
           </span>
         </div>
         <ul className="min-w-40 flex-1 space-y-2">
-          {categories.map(({ label, amount }, index) => (
+          {segments.map(({ label, amount, color }) => (
             <li key={label} className="flex items-center gap-2 text-xs">
-              <span aria-hidden="true" className="size-2.5 rounded-full" style={{ background: colors[index % colors.length] }} />
+              <span aria-hidden="true" className="size-2.5 rounded-full" style={{ background: color }} />
               <span className="flex-1">{label}</span><span className="tabular-nums">{formatMinor(amount)}</span>
             </li>
           ))}
