@@ -23,6 +23,28 @@ class LedgerApiTest(unittest.TestCase):
             self.assertEqual(client.get("/v1/ledger").status_code, 401)
             self.assertEqual(client.delete(f"/v1/transactions/{ENTRY_ID}").status_code, 401)
 
+    def test_hunt_username_uses_authenticated_rpc_and_reports_collisions(self):
+        original_client = httpx.AsyncClient
+
+        def database(request):
+            self.assertTrue(request.url.path.endswith("/rpc/set_hunt_username"))
+            self.assertEqual(request.headers["authorization"], "Bearer test-player")
+            self.assertEqual(json.loads(request.content), {"requested_username": "hunt_player"})
+            return httpx.Response(409, json={"code": "23505"})
+
+        env = {"SUPABASE_URL": "https://project.example", "SUPABASE_PUBLISHABLE_KEY": "test-project"}
+        with TestClient(app) as anonymous:
+            self.assertEqual(anonymous.get("/v1/hunt/profile").status_code, 401)
+            self.assertEqual(anonymous.get("/v1/hunt/lobby").status_code, 401)
+        with patch.dict(os.environ, env), patch("main.httpx.AsyncClient", side_effect=lambda **kw: original_client(
+            **kw, transport=httpx.MockTransport(database)
+        )), TestClient(app, headers={"Authorization": "Bearer test-player"}) as client:
+            invalid = client.put("/v1/hunt/profile", json={"username": "email@example.test"})
+            self.assertEqual(invalid.status_code, 422)
+            duplicate = client.put("/v1/hunt/profile", json={"username": "  Hunt_Player "})
+            self.assertEqual(duplicate.status_code, 409)
+            self.assertEqual(duplicate.json()["detail"], "That username is already taken.")
+
     def test_yearly_subscriptions_accept_annual_and_installment_schedules(self):
         from main import SubscriptionInput
 

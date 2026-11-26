@@ -16,6 +16,8 @@ type RemoteState = { owner: string; data?: LedgerData; error?: string };
 type Account = {
   session: Session | null;
   ready: boolean;
+  displayName: string;
+  changeDisplayName: (name: string) => Promise<void>;
   remote: RemoteState | null;
   previewEntries: ManualEntry[];
   retry: () => void;
@@ -105,6 +107,14 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   return (
     <AccountContext.Provider value={{
       session, ready, remote: activeRemote,
+      displayName: typeof session?.user.user_metadata?.display_name === "string" ? session.user.user_metadata.display_name : "",
+      changeDisplayName: async (name) => {
+        if (!session || !supabase) throw new Error("Sign in to update your profile.");
+        const cleaned = name.trim();
+        if (cleaned.length > 60) throw new Error("Use at most 60 characters.");
+        const { error } = await supabase.auth.updateUser({ data: { display_name: cleaned } });
+        if (error) throw error;
+      },
       previewEntries: preview && preview.owner === owner ? preview.entries : noPreviewEntries,
       refreshLedger: () => setRefresh((count) => count + 1),
       retry: () => { setRemote(null); setRefresh((count) => count + 1); },

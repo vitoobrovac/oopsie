@@ -3,6 +3,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { AboutOopsie } from "@/components/dashboard/about-oopsie";
+import { useAccount } from "@/components/account/account-provider";
 import { Toast } from "@/components/layout/toast";
 import { AddTransactionButton } from "@/components/features/add-transaction";
 import { localToday, useLedger } from "@/lib/use-ledger";
@@ -23,6 +25,7 @@ const negativeBalance = { surface: "border-[#762f3c] bg-[#762f3c] text-white", b
 
 export function Dashboard() {
   const { report } = useLedger();
+  const { displayName } = useAccount();
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState("");
   const categoryPeriod = report.chart.find((period) => period.start === selectedPeriod)?.start ?? report.start;
@@ -33,6 +36,7 @@ export function Dashboard() {
         <div>
           <p className="text-xs text-[#59685e]">{report.range}</p>
           <h1 className="mt-1 text-2xl sm:text-3xl font-semibold tracking-tight">Overview</h1>
+          {displayName && <p className="mt-1 break-words text-sm text-[#59685e]">Hi, {displayName}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/products" aria-label="Search purchases" className="grid size-11 place-items-center rounded-xl border border-[#e2e7e0] bg-white"><Icon name="search" className="size-5" /></Link>
@@ -94,6 +98,8 @@ export function Dashboard() {
         <span className="flex items-center gap-2"><Icon name="sparkles" className="size-4 text-[#d8ee79]" />Explore spending insights</span>
         <span aria-hidden="true">→</span>
       </Link>
+
+      <AboutOopsie />
 
       {notice && <Toast dismiss={() => setNotice(null)}>{notice}</Toast>}
     </div>

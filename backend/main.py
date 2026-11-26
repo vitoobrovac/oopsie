@@ -90,6 +90,16 @@ PLANNING = {
 }
 
 
+class HuntUsername(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=3, max_length=20, pattern=r"^[a-z0-9_]+$")
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
+
+
 class Preferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
     monthStartDay: int = Field(strict=True, ge=1, le=31)
@@ -165,11 +175,15 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
         if code in {"PGRST202", "PGRST205", "42P01"}:
             if allow_missing:
                 return None
+            if path in {"rpc/get_hunt_profile", "rpc/set_hunt_username", "rpc/get_hunt_lobby"}:
+                raise HTTPException(503, "Oopsie Hunt needs migration 007 in Supabase.")
             if path in {"budgets", "savings_goals", "subscriptions", "rpc/sync_my_subscriptions"}:
                 raise HTTPException(503, "Planning needs the private planning migration in your development database.")
             raise HTTPException(503, "Receipt tables are missing. Apply the receipt migration in Supabase.")
         if code == "23514" and path == "subscriptions" and kwargs.get("json", {}).get("cadence") in {"yearly", "yearly_split"}:
             raise HTTPException(503, "Apply migration 004 in Supabase to enable yearly subscriptions.")
+        if code == "23505" and path == "rpc/set_hunt_username":
+            raise HTTPException(409, "That username is already taken.")
         if code == "23505" and path == "budgets":
             raise HTTPException(409, "A budget already exists for this category.")
         raise HTTPException(502, "The database could not complete this request.")
@@ -188,6 +202,21 @@ async def ledger_entries(client: httpx.AsyncClient):
         if len(page) < PAGE_SIZE:
             break
     return entries
+
+
+@app.get("/v1/hunt/profile")
+async def get_hunt_profile(client: Database):
+    return await request(client, "GET", "rpc/get_hunt_profile")
+
+
+@app.put("/v1/hunt/profile")
+async def change_hunt_username(profile: HuntUsername, client: Database):
+    return await request(client, "POST", "rpc/set_hunt_username", json={"requested_username": profile.username})
+
+
+@app.get("/v1/hunt/lobby")
+async def get_hunt_lobby(client: Database):
+    return await request(client, "GET", "rpc/get_hunt_lobby")
 
 
 @app.get("/v1/ledger")

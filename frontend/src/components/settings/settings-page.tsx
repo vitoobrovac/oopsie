@@ -1,31 +1,105 @@
+
 "use client";
 
-import Link from "next/link";
-import { Toast } from "@/components/layout/toast";
-import { useState } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { useAccount } from "@/components/account/account-provider";
+import { saveMotionPreference, useReducedMotionPreference } from "@/lib/motion-preference";
+import { HuntProfileSetting } from "./hunt-profile-setting";
 import { useLedger } from "@/lib/use-ledger";
 
+const field = "mt-2 min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 py-2 text-base";
+const saveButton = "mt-3 min-h-11 rounded-xl bg-[#183c31] px-4 text-sm font-semibold text-white disabled:opacity-50";
+
+type SaveStatus = { text: string; error?: boolean };
+
 export function SettingsPage() {
-  const [language, setLanguage] = useState("English");
-  const [currency, setCurrency] = useState("EUR");
-  const [notice, setNotice] = useState<string | null>(null);
-  return <div className="mx-auto max-w-3xl"><header><p className="text-sm text-[#718078]">Personalize your space</p><h1 className="mt-1 text-2xl font-semibold tracking-[-0.04em] sm:text-3xl">Settings</h1><p className="mt-2 text-sm leading-6 text-[#718078]">Set your reporting month. Profile, language and currency controls are previews.</p></header><section className="mt-7 space-y-4"><MonthStartSetting /><Group title="Profile"><Row title="Display name" description="Used only to personalize your dashboard"><input className="mt-2 w-full rounded-xl border border-[#dfe5dc] px-3 py-2 text-sm outline-none" placeholder="Your name" /></Row><Row title="Language" description="Controls the app interface language"><select value={language} onChange={(event) => setLanguage(event.target.value)} className="mt-2 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 py-2 text-sm outline-none"><option>English</option><option>Hrvatski</option><option>Deutsch</option></select></Row></Group><Group title="Money"><Row title="Default currency" description="Preview selection. Transactions are recorded in EUR."><select value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-2 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 py-2 text-sm outline-none"><option value="EUR">EUR — Euro</option><option value="USD">USD — US Dollar</option><option value="GBP">GBP — Pound Sterling</option></select></Row><Row title="Start of week" description="Used by future calendar and reporting screens"><select className="mt-2 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 py-2 text-sm outline-none"><option>Monday</option><option>Sunday</option></select></Row></Group><Group title="Future connections"><Row title="Receipt scanning" description="Upload photos and review extracted purchases"><Link href="/receipts/new" className="mt-2 inline-flex min-h-11 items-center rounded-lg border border-[#dfe5dc] px-3 text-sm font-medium text-[#31533c]">Scan a receipt</Link></Row><Row title="oopsie AI" description="Ask questions about your spending"><button onClick={() => setNotice("oopsie AI is planned, but not available yet.")} className="mt-2 rounded-lg border border-[#dfe5dc] px-3 py-2 text-sm font-medium text-[#627067]">Coming later</button></Row></Group></section>{notice && <Toast dismiss={() => setNotice(null)}>{notice}</Toast>}</div>;
+  const { session } = useAccount();
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Settings</h1>
+        <p className="mt-1 text-sm text-[#59685e]">Manage your profile, reporting period, and appearance.</p>
+      </header>
+      <ProfileSetting key={session?.user.id} />
+      <HuntProfileSetting />
+      <MonthStartSetting />
+      <MotionSetting />
+    </div>
+  );
 }
-function Group({ title, children }: { title: string; children: React.ReactNode }) { return <section className="overflow-hidden rounded-2xl border border-[#e4e9e2] bg-white"><h2 className="border-b border-[#edf0ec] px-5 py-4 text-sm font-semibold">{title}</h2>{children}</section>; }
-function Row({ title, description, children }: { title: string; description: string; children: React.ReactNode }) { return <div className="border-b border-[#edf0ec] px-5 py-4 last:border-b-0"><p className="text-sm font-medium">{title}</p><p className="mt-1 text-xs leading-5 text-[#7b867f]">{description}</p>{children}</div>; }
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-[#e4e9e2] bg-white">
+      <h2 className="border-b border-[#edf0ec] px-4 py-3 text-sm font-semibold sm:px-5">{title}</h2>
+      <div className="p-4 sm:p-5">{children}</div>
+    </section>
+  );
+}
+
+function Status({ message }: { message: SaveStatus | null }) {
+  if (!message) return null;
+  return <p role={message.error ? "alert" : "status"} className={"mt-2 text-xs " + (message.error ? "text-red-800" : "text-[#31533c]")}>{message.text}</p>;
+}
+
+function ProfileSetting() {
+  const { session, displayName, changeDisplayName } = useAccount();
+  const [draft, setDraft] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<SaveStatus | null>(null);
+  const name = draft ?? displayName;
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    setPending(true);
+    setMessage(null);
+    try {
+      await changeDisplayName(name);
+      setDraft(null);
+      setMessage({ text: "Profile saved." });
+    } catch {
+      setMessage({ text: "Could not save your profile. Try again.", error: true });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Group title="Profile">
+      <form onSubmit={save}>
+        {session?.user.email && <p className="mb-3 break-words text-xs text-[#59685e]">Signed in as {session.user.email}</p>}
+        <label className="block text-sm font-medium">
+          Display name
+          <input className={field} name="displayName" value={name} maxLength={60} autoComplete="nickname" disabled={pending}
+            onChange={(event) => { setDraft(event.target.value); setMessage(null); }} />
+        </label>
+        <p className="mt-1 text-xs text-[#59685e]">Appears on your Overview and in the Account menu.</p>
+        <button className={saveButton} disabled={pending || name.trim() === displayName}>{pending ? "Saving…" : "Save profile"}</button>
+        <Status message={message} />
+      </form>
+    </Group>
+  );
+}
 
 function MonthStartSetting() {
   const { monthStartDay, report, saveMonthStartDay, canWrite } = useLedger();
-  const [message, setMessage] = useState("");
-
+  const [draft, setDraft] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
-  async function changeDay(day: number) {
+  const [message, setMessage] = useState<SaveStatus | null>(null);
+  const day = draft ?? monthStartDay;
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
     setPending(true);
+    setMessage(null);
     try {
       await saveMonthStartDay(day);
-      setMessage("Saved to your account.");
+      setDraft(null);
+      setMessage({ text: "Reporting period saved." });
     } catch {
-      setMessage("Could not save the setting. Try again.");
+      setMessage({ text: "Could not save the reporting period. Try again.", error: true });
     } finally {
       setPending(false);
     }
@@ -33,16 +107,44 @@ function MonthStartSetting() {
 
   return (
     <Group title="Reporting period">
-      <Row title="Month starts on" description="Choose your payday or any other day. In shorter months, the period starts on the last day if your chosen day is unavailable.">
-        <select aria-label="Month starts on" disabled={!canWrite || pending} value={monthStartDay} onChange={(event) => changeDay(Number(event.target.value))}
-          className="mt-2 min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 py-2 text-base">
-          {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
-            <option value={day} key={day}>{day === 1 ? "Day 1 (calendar month)" : "Day " + day}</option>
-          ))}
-        </select>
-        <p className="mt-2 text-xs text-[#59685e]">Current period · {report.range}</p>
-        {message && <p role="status" className="mt-2 text-xs text-[#31533c]">{message}</p>}
-      </Row>
+      <form onSubmit={save}>
+        <label className="block text-sm font-medium">Month starts on
+          <select className={field} disabled={!canWrite || pending} value={day}
+            onChange={(event) => { setDraft(Number(event.target.value)); setMessage(null); }}>
+            {Array.from({ length: 31 }, (_, index) => index + 1).map((option) => (
+              <option value={option} key={option}>{option === 1 ? "Day 1 (calendar month)" : "Day " + option}</option>
+            ))}
+          </select>
+        </label>
+        <p className="mt-1 text-xs text-[#59685e]">Choose your payday or any other day for budgets and monthly reports.</p>
+        <p className="mt-2 text-xs font-medium text-[#31533c]">Current period · {report.range}</p>
+        <button className={saveButton} disabled={!canWrite || pending || day === monthStartDay}>{pending ? "Saving…" : "Save reporting period"}</button>
+        <Status message={message} />
+      </form>
+    </Group>
+  );
+}
+
+function MotionSetting() {
+  const reduced = useReducedMotionPreference();
+  const [message, setMessage] = useState<SaveStatus | null>(null);
+  return (
+    <Group title="Appearance">
+      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-4">
+        <span>
+          <span className="block text-sm font-medium">Reduce motion</span>
+          <span className="mt-1 block text-xs text-[#59685e]">Turns off opening and loading animations on this browser.</span>
+        </span>
+        <input type="checkbox" checked={reduced} className="size-5 shrink-0 accent-[#183c31]" onChange={(event) => {
+          try {
+            saveMotionPreference(event.target.checked);
+            setMessage({ text: "Saved on this browser." });
+          } catch {
+            setMessage({ text: "This browser could not save the preference.", error: true });
+          }
+        }} />
+      </label>
+      <Status message={message} />
     </Group>
   );
 }

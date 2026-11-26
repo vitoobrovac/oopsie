@@ -14,3 +14,22 @@ body {
 }
 
 button, a { -webkit-tap-highlight-color: transparent; }
+
+@keyframes oopsie-arrive {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+@keyframes oopsie-float {
+  50% { transform: translateY(-6px) rotate(-4deg); }
+}
+
+@keyframes oopsie-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-oopsie-reduced-motion]) .oopsie-reveal { animation: oopsie-arrive 320ms ease-out both; }
+  :root:not([data-oopsie-reduced-motion]) .oopsie-float { animation: oopsie-float 1.8s ease-in-out infinite; }
+  :root:not([data-oopsie-reduced-motion]) .oopsie-orbit { animation: oopsie-orbit 1.6s linear infinite; }
+}
