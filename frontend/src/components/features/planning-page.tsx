@@ -20,17 +20,17 @@ type Editor = { item?: Item; remove?: boolean };
 const pages = {
   budgets: {
     title: "Budgets", item: "budget", action: "Add budget",
-    description: "Set category limits and choose when they reset.",
+    description: "Cap spending in a category and get a warning near the limit. Choose weekly, monthly, yearly, or one-time. A budget never sets money aside.",
     empty: "Add a budget to see how much you have left to spend in that category.",
   },
   goals: {
     title: "Savings goals", item: "goal", action: "Add goal",
-    description: "Set a target and record what you’ve put aside.",
+    description: "Track money you’ve saved toward a target. Enter savings you already have, or set aside money left over from your week or month on Overview.",
     empty: "Add a savings goal for something you want to work toward.",
   },
   subscriptions: {
     title: "Subscriptions", item: "subscription", action: "Add subscription",
-    description: "Automatically record weekly, monthly, or yearly expenses in your ledger.",
+    description: "Record repeating bills like Spotify as expenses when they’re due. They reduce what’s left in Oopsie. Your provider handles the actual charge.",
     empty: "Add a recurring expense and choose the date of your first payment.",
   },
 };
@@ -38,8 +38,8 @@ const primary = "min-h-11 rounded-xl bg-[#183c31] px-4 text-sm font-semibold tex
 const secondary = "min-h-11 rounded-xl border border-[#dce4d9] px-3 text-sm font-semibold text-[#31533c] disabled:opacity-50";
 const field = "mt-1 min-h-11 w-full min-w-0 rounded-xl border border-[#dce4d9] bg-white px-3 py-2 text-base";
 
-export function PlanningTabs({ active }: { active: "budgets" | "goals" | "bill-funds" }) {
-  const tabs = { budgets: "Budgets", goals: "Savings goals", "bill-funds": "Bill funds" } as const;
+export function PlanningTabs({ active }: { active: Plan | "bill-funds" }) {
+  const tabs = { budgets: "Budgets", goals: "Savings goals", "bill-funds": "Bill funds", subscriptions: "Subscriptions" } as const;
   return <nav aria-label="Budget and goal planning" className="flex w-fit flex-wrap gap-1 rounded-xl bg-[#edf2eb] p-1">
     {(Object.keys(tabs) as (keyof typeof tabs)[]).map((option) =>
       <Link key={option} href={"/" + option} aria-current={option === active ? "page" : undefined}
@@ -117,8 +117,7 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
   return (
     <FeaturePage title={copy.title} description={copy.description} cards={[]}
       action={<button className={primary} disabled={!items || Boolean(loadError)} onClick={() => setEditor({})}>{copy.action}</button>}>
-      {plan !== "subscriptions" && <PlanningTabs active={plan} />}
-      {plan === "subscriptions" && <Link href="/bill-funds" className="inline-flex min-h-11 items-center text-sm font-semibold text-[#31533c] underline">Set money aside instead · Bill funds</Link>}
+      <PlanningTabs active={plan} />
       {useLocalPlanning && <p className="text-xs text-[#59685e]">Local preview · Changes are saved in this browser.{plan === "budgets" && !remote?.data ? " Spending totals appear when the ledger is connected." : ""}</p>}
       {loadError ? (
         <p role="alert" className="rounded-2xl border border-[#e4e9e2] bg-white p-4 text-sm">
@@ -153,7 +152,6 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
           </ul>
         </div>
       ))}
-      {plan === "subscriptions" && <p className="text-xs text-[#59685e]">Scheduled entries track payments in oopsie. Your bill provider still handles the actual charge.</p>}
       {editor && <PlanForm key={editor.remove ? "delete" : "edit"} plan={plan} editor={editor} categories={categoryLabels} close={() => setEditor(null)} remove={() => setEditor({ item: editor.item, remove: true })} commit={commit} />}
     </FeaturePage>
   );

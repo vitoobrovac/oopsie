@@ -120,13 +120,15 @@ select cron.schedule(
 
 ## Enable recurring income, goal savings, and account reset
 
-Apply migrations `013` through `017` from the Supabase migrations folder in order. Recurring income uses the signed-in user's ledger and catches up due payments when the ledger is loaded. Stopping a schedule preserves income already recorded.
+Apply migrations `013` through `018` from the Supabase migrations folder in order. Recurring income uses the signed-in user's ledger and catches up due payments when the ledger is loaded. Stopping a schedule preserves income already recorded.
 
 The Overview's **Put into goal savings** action appears when the selected week, month, or year has a positive available balance. Allocations reduce what is available and add to goal progress without changing income or spending totals. The split uses goal priority and remaining target, and caps each contribution at the amount the goal still needs. The user moves any real money separately.
 
 Under **Settings → Overview**, each account can choose whether its summary and chart open on Month or Week. Month is the default. Chart buttons change the current visit only. Migration `016` clears the saved period when an account reset completes.
 
 Migration `017` adds **Bill funds** and budget reset options. Create a Bill fund under the four-square menu or from Budgets and Goals. Weekly contributions use the reporting week, and monthly contributions use the configured reporting month. Oopsie sets aside the scheduled amount when the ledger loads and there’s enough available. Missed contributions do not accumulate. When you pay the bill, use **Record bill** to log the expense and draw down the amount set aside. Oopsie only tracks these amounts.
+
+Migration `018` enables **Due date** plans. Enter a target, any savings you already have, a first contribution date, and the payment deadline. Oopsie divides the amount still needed across the remaining weekly or monthly contribution dates, including a contribution that falls on the deadline. Early contributions from Overview and changes to **Already saved** lower later amounts. Automatic contributions stop after the deadline or once the target is fully funded. Existing fixed-amount funds continue to work.
 
 Weekly budgets follow the first day of the week in Settings. Monthly budgets follow the configured reporting month, yearly budgets use the calendar year, and one-time budgets count spending from their chosen start date. Overview flags budgets when spending reaches 80% of the limit.
 

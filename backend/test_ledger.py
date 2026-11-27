@@ -166,6 +166,17 @@ class LedgerApiTest(unittest.TestCase):
             self.assertEqual(client.post(path, json={**payload, "amount_minor": 0}).status_code, 422)
             self.assertEqual(client.post(path, json=payload).status_code, 204)
 
+    def test_bill_fund_requires_either_an_amount_or_a_valid_deadline(self):
+        from main import BillFundInput
+
+        fields = {"name": "Car registration", "amount_minor": 40000, "saved_minor": 10000,
+                  "fund_cadence": "monthly", "fund_starts_on": "2026-12-01", "fund_active": True}
+        self.assertIsNone(BillFundInput(**fields, fund_due_on="2027-03-01").fund_amount_minor)
+        self.assertIsNone(BillFundInput(**fields, fund_amount_minor=7500).fund_due_on)
+        for invalid in ({}, {"fund_due_on": "2026-11-30"}, {"fund_due_on": "2027-03-01", "fund_amount_minor": 7500}):
+            with self.assertRaises(ValueError):
+                BillFundInput(**fields, **invalid)
+
     def test_goal_allocation_uses_owner_session_and_reports_changed_balance(self):
         original_client = httpx.AsyncClient
         payload = {"allocation_id": ENTRY_ID, "period": "week",

@@ -8,13 +8,14 @@ import { PlanningTabs, Progress } from "@/components/features/planning-page";
 import { Modal } from "@/components/layout/modal";
 import { formatMinor, formatReceiptDate } from "@/lib/finance-format";
 import { amountsByGoal } from "@/lib/goal-savings";
+import { firstFundingDate, fundingPlan, type FundCadence } from "@/lib/bill-fund-schedule";
 import { expenseCategories, isDate, parseAmount } from "@/lib/ledger";
 import type { Goal } from "@/lib/local-planning";
 import { newReceiptId } from "@/lib/receipts";
 import { localToday } from "@/lib/use-ledger";
 
 type Fund = Goal & {
-  fund_cadence: "weekly" | "monthly"; fund_amount_minor: number; fund_starts_on: string;
+  fund_cadence: FundCadence; fund_amount_minor: number | null; fund_due_on?: string | null; fund_starts_on: string;
   fund_next_due: string; fund_active: boolean;
 };
 type Editor = { kind: "edit"; fund?: Fund } | { kind: "bill" | "delete"; fund: Fund };
@@ -62,27 +63,35 @@ export function BillFunds() {
     setAttempt((value) => value + 1);
   }
 
-  return <FeaturePage title="Bill funds" description="Set money aside for future bills, like car registration or annual insurance."
+  return <FeaturePage title="Bill funds" description="Reserve money weekly or monthly for a future bill or loan payment. Pick a due date and Oopsie adjusts the contributions as you save."
     cards={[]} action={<button className={primary} disabled={!funds || Boolean(error)} onClick={() => setEditor({ kind: "edit" })}>Add bill fund</button>}>
     <PlanningTabs active="bill-funds" />
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#edf4ed] p-3 text-xs text-[#31533c]">
       <p>Oopsie tracks what you set aside. You move and pay the money yourself.</p>
-      <Link href="/subscriptions" className="font-semibold underline">View subscriptions</Link>
+      <Link href="/" className="font-semibold underline">Add spare money from Overview</Link>
     </div>
     {error ? <p role="alert" className="text-sm text-red-800">{error}
       <button type="button" className="ml-2 min-h-11 font-semibold underline" onClick={() => { setError(""); setAttempt((value) => value + 1); }}>Retry</button>
     </p> : !funds ? <p role="status" className="text-sm">Loading bill funds…</p> : funds.length === 0 ?
-      <p className="rounded-xl border border-[#e4e9e2] bg-white p-4 text-sm">Add a bill fund and pick how much to set aside each week or month.</p> :
+      <p className="rounded-xl border border-[#e4e9e2] bg-white p-4 text-sm">Add a fund for car registration, annual insurance, or another planned payment.</p> :
       <ul className="grid gap-3 sm:grid-cols-2">{[...funds].sort((a, b) => a.fund_next_due.localeCompare(b.fund_next_due) || a.name.localeCompare(b.name)).map((fund) => {
         const balance = saved(fund);
+        const today = localToday();
+        const plan = fund.fund_due_on
+          ? fundingPlan(fund.fund_starts_on, fund.fund_cadence, fund.fund_next_due, today, fund.fund_due_on, fund.amount_minor - balance) : null;
+        const contribution = plan?.amount ?? fund.fund_amount_minor ?? 0;
+        const status = balance >= fund.amount_minor ? "Fully funded" : !fund.fund_active ? "Paused"
+          : fund.fund_due_on && fund.fund_due_on < today ? "Deadline passed"
+          : plan?.count === 0 ? "No contributions scheduled before the deadline"
+          : fund.fund_next_due <= today ? "Waiting for available money" : "Next contribution " + formatReceiptDate(fund.fund_next_due);
         return <li key={fund.id} className="rounded-2xl border border-[#e4e9e2] bg-white p-4">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0"><h2 className="wrap-break-word font-semibold">{fund.name}</h2>
-              <p className="mt-1 text-xs text-[#59685e]">{formatMinor(fund.fund_amount_minor)} {fund.fund_cadence} · {fund.priority ?? "normal"} priority</p></div>
+              <p className="mt-1 text-xs text-[#59685e]">{!plan || contribution > 0 ? formatMinor(contribution) + " " + fund.fund_cadence + " · " : ""}{fund.priority ?? "normal"} priority</p>
+              {fund.fund_due_on && <p className="mt-1 text-xs text-[#59685e]">Due {formatReceiptDate(fund.fund_due_on)}</p>}</div>
             <button type="button" className={secondary} aria-label={"Edit " + fund.name} onClick={() => setEditor({ kind: "edit", fund })}>Edit</button>
           </div>
-          <Progress goal amount={balance} target={fund.amount_minor} label="Set aside" status={balance >= fund.amount_minor ? "Fully funded" :
-            !fund.fund_active ? "Paused" : fund.fund_next_due <= localToday() ? "Waiting for available money" : "Next contribution " + formatReceiptDate(fund.fund_next_due)} />
+          <Progress goal amount={balance} target={fund.amount_minor} label="Set aside" status={status} />
           {balance > 0 && <button type="button" className={secondary + " mt-3"} onClick={() => setEditor({ kind: "bill", fund })}>Record bill</button>}
         </li>;
       })}</ul>}
@@ -101,6 +110,19 @@ function FundForm({ editor, balance, close, remove, commit }: {
   const [error, setError] = useState("");
   const [billText, setBillText] = useState("");
   const [entryId] = useState(newReceiptId);
+  const [mode, setMode] = useState(fund && !fund.fund_due_on ? "fixed" : "deadline");
+  const [targetText, setTargetText] = useState(fund ? (fund.amount_minor / 100).toFixed(2) : "");
+  const [savedText, setSavedText] = useState(fund ? (fund.saved_minor / 100).toFixed(2) : "");
+  const [cadence, setCadence] = useState<FundCadence>(fund?.fund_cadence ?? "monthly");
+  const today = localToday();
+  const [start, setStart] = useState(fund?.fund_starts_on ?? today);
+  const [deadline, setDeadline] = useState(fund?.fund_due_on ?? "");
+  const target = parseAmount(targetText);
+  const alreadySaved = !savedText.trim() || /^0+(?:[.,]0{1,2})?$/.test(savedText.trim()) ? 0 : parseAmount(savedText);
+  const remaining = Math.max(0, (target ?? 0) - (alreadySaved ?? 0) - (balance - (fund?.saved_minor ?? 0)));
+  const projection = mode === "deadline" && target && alreadySaved !== null && isDate(start) && isDate(deadline)
+    ? fundingPlan(start, cadence, fund?.fund_starts_on === start && fund.fund_cadence === cadence
+      ? fund.fund_next_due : firstFundingDate(start, cadence, today), today, deadline, remaining) : null;
   const bill = parseAmount(billText);
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -114,12 +136,15 @@ function FundForm({ editor, balance, close, remove, commit }: {
       payload = { entry_id: entryId, amount_minor: bill, description: name, category: data.get("category") };
     }
     if (kind === "edit") {
-      const target = parseAmount(String(data.get("target") ?? ""));
       const contribution = parseAmount(String(data.get("contribution") ?? ""));
-      const start = String(data.get("start") ?? "");
-      if (!name || !target || !contribution || !isDate(start)) return setError("Check the fund name, amounts, and first contribution date.");
-      payload = { name, amount_minor: target, saved_minor: fund?.saved_minor ?? 0, priority: data.get("priority"),
-        fund_amount_minor: contribution, fund_cadence: data.get("repeat"), fund_starts_on: start, fund_active: data.has("active") };
+      if (!name || !target || alreadySaved === null || !isDate(start)) return setError("Check the fund name, amounts, and first contribution date.");
+      if (mode === "fixed" && !contribution) return setError("Enter a positive contribution amount.");
+      if (mode === "deadline" && (!isDate(deadline) || deadline < start || (!fund && !projection?.count))) {
+        return setError("Choose a deadline with at least one contribution on or before it.");
+      }
+      payload = { name, amount_minor: target, saved_minor: alreadySaved, priority: data.get("priority"),
+        fund_amount_minor: mode === "fixed" ? contribution : null, fund_due_on: mode === "deadline" ? deadline : null,
+        fund_cadence: cadence, fund_starts_on: start, fund_active: data.has("active") };
     }
     setError("");
     setPending(true);
@@ -152,11 +177,28 @@ function FundForm({ editor, balance, close, remove, commit }: {
             {bill && bill > balance ? " The remaining " + formatMinor(bill - balance) + " comes from your available balance." : ""}</p>
         </> : <>
           <div className="grid grid-cols-2 gap-2">
-            <label className="font-medium">Target amount (€)<input className={field} name="target" inputMode="decimal" required defaultValue={fund && (fund.amount_minor / 100).toFixed(2)} /></label>
-            <label className="font-medium">Set aside (€)<input className={field} name="contribution" inputMode="decimal" required defaultValue={fund && (fund.fund_amount_minor / 100).toFixed(2)} /></label>
-            <label className="font-medium">Repeat<select className={field} name="repeat" defaultValue={fund?.fund_cadence ?? "monthly"}><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
-            <label className="min-w-0 font-medium">First contribution<input type="date" className={field} name="start" required min="1900-01-01" max="9999-01-01" defaultValue={fund?.fund_starts_on ?? localToday()} /></label>
+            <label className="font-medium">Target amount (€)<input className={field} inputMode="decimal" required value={targetText} onChange={(event) => setTargetText(event.target.value)} /></label>
+            <label className="font-medium">Already saved (€)<input className={field} inputMode="decimal" placeholder="0.00" value={savedText} onChange={(event) => setSavedText(event.target.value)} /></label>
+            <label className="font-medium">Repeat<select className={field} value={cadence} onChange={(event) => setCadence(event.target.value as FundCadence)}><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
+            <label className="min-w-0 font-medium">First contribution<input type="date" className={field} required min={fund?.fund_starts_on ?? today} max="9999-01-01" value={start} onChange={(event) => setStart(event.target.value)} /></label>
           </div>
+          <p className="text-xs text-[#59685e]">Already saved tracks money set aside outside Oopsie. It doesn’t reduce what’s left in your ledger.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="font-medium">Plan by<select className={field} value={mode} onChange={(event) => setMode(event.target.value)}>
+              <option value="deadline">Due date</option><option value="fixed">Fixed amount</option>
+            </select></label>
+            {mode === "deadline" ? <label className="min-w-0 font-medium">Due date
+              <input type="date" className={field} required min={start} max="9999-01-01" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
+            </label> : <label className="font-medium">Set aside (€)
+              <input className={field} name="contribution" inputMode="decimal" required defaultValue={fund?.fund_amount_minor ? (fund.fund_amount_minor / 100).toFixed(2) : ""} />
+            </label>}
+          </div>
+          {projection && <p className="rounded-xl bg-[#edf4ed] p-3 text-sm text-[#31533c]">
+            {!remaining ? "Target already funded." : projection.count ? <>
+              <strong>{formatMinor(projection.amount)} {cadence}</strong> · {projection.count} {projection.count === 1 ? "contribution" : "contributions"} left.
+              <span className="mt-1 block text-xs">Adding money early lowers the remaining contributions.</span>
+            </> : "No scheduled contributions fit before this deadline."}
+          </p>}
           <label className="block font-medium">Priority<select name="priority" className={field} defaultValue={fund?.priority ?? "normal"}>
             <option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option>
           </select></label>

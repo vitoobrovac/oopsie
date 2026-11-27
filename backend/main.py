@@ -85,9 +85,18 @@ class GoalInput(PlanningInput):
 
 class BillFundInput(GoalInput):
     fund_cadence: Literal["weekly", "monthly"]
-    fund_amount_minor: PositiveMinor
+    fund_amount_minor: PositiveMinor | None = None
+    fund_due_on: Date | None = Field(default=None, le=Date(9999, 1, 1))
     fund_starts_on: Date = Field(ge=Date(1900, 1, 1), le=Date(9999, 1, 1))
     fund_active: bool
+
+    @model_validator(mode="after")
+    def validate_contribution(self):
+        if (self.fund_due_on is None) == (self.fund_amount_minor is None):
+            raise ValueError("Choose a fixed contribution or a deadline.")
+        if self.fund_due_on is not None and self.fund_due_on < self.fund_starts_on:
+            raise ValueError("The deadline must be on or after the first contribution.")
+        return self
 
 
 class FundBillInput(PlanningInput):
@@ -477,6 +486,8 @@ def planning_selections(plan: Plan, fields: str, *, reading=True):
         return (fields + ",priority,reset_period,starts_on", fields + ",priority", fields)
     if plan == "goals":
         return (fields + ",priority,fund_cadence", fields + ",priority", fields) if reading else (fields + ",priority", fields)
+    if plan == "bill-funds":
+        return (fields + ",fund_due_on", fields)
     return (fields,)
 
 
@@ -495,6 +506,9 @@ async def write_plan(plan: Plan, payload: dict, client: Database, entry_id: UUID
             params["fund_cadence"] = "not.is.null"
     method = "POST" if entry_id is None else "PATCH"
     data = value.model_dump(mode="json", exclude_none=True)
+    if isinstance(value, BillFundInput):
+        data["fund_due_on"] = value.fund_due_on.isoformat() if value.fund_due_on else None
+        data["fund_amount_minor"] = value.fund_amount_minor
     headers = {"Prefer": "return=representation"}
     for select in planning_selections(plan, fields, reading=False):
         try:
@@ -503,7 +517,11 @@ async def write_plan(plan: Plan, payload: dict, client: Database, entry_id: UUID
         except HTTPException as error:
             if error.detail != PLANNING_SCHEMA_MESSAGE or select == fields:
                 raise
-            if "reset_period" in select:
+            if plan == "bill-funds":
+                if data.get("fund_due_on") is not None:
+                    raise HTTPException(503, "Bill fund deadlines need migration 018 in Supabase.") from error
+                data.pop("fund_due_on", None)
+            elif "reset_period" in select:
                 if data.get("reset_period") not in {None, "monthly"} or data.get("starts_on") is not None:
                     raise
                 data.pop("reset_period", None)
