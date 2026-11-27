@@ -15,7 +15,7 @@ export function useLedger() {
   const account = useAccount();
   const data = account.remote?.data ?? emptyLedger;
   const today = localToday();
-  const report = useMemo(() => ledgerReport([...data.entries, ...account.previewEntries], data.monthStartDay, today), [data, account.previewEntries, today]);
+  const report = useMemo(() => ledgerReport([...data.entries, ...account.previewEntries], data.monthStartDay, today, data.goalAllocations), [data, account.previewEntries, today]);
   return {
     monthStartDay: data.monthStartDay, report, canWrite: Boolean(account.remote?.data),
     saveEntry: account.create, deleteEntry: account.remove, saveMonthStartDay: account.changeDay,

@@ -17,6 +17,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ValidationError, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from exchange_rates import Currency, RateUnavailable, convert_receipt, latest_rate
+from account_reset import confirm_reset, request_reset
 from receipt_pipeline import ReceiptRecognitionError, analyze
 from receipt_categories import EXPENSE_CATEGORIES, receipt_category
 
@@ -65,11 +66,13 @@ class PlanningInput(BaseModel):
 
 class BudgetInput(PlanningInput):
     category: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+    priority: Literal["low", "normal", "high"] | None = None
 
 
 class GoalInput(PlanningInput):
     name: Text
     saved_minor: int = Field(strict=True, ge=0, le=99999999999)
+    priority: Literal["low", "normal", "high"] | None = None
 
 
 class SubscriptionInput(PlanningInput):
@@ -83,6 +86,25 @@ class SubscriptionInput(PlanningInput):
         if self.cadence == "yearly_split" and self.amount_minor < 12:
             raise ValueError("The yearly amount must be at least €0.12 to split it into 12 monthly entries.")
         return self
+
+
+class RecurringIncomeInput(PlanningInput):
+    name: Text
+    category: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+    merchant: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] = ""
+    starts_on: Date = Field(ge=Date(1900, 1, 1), le=Date(9999, 1, 1))
+    cadence: Literal["weekly", "monthly", "yearly"]
+
+
+class GoalContribution(PlanningInput):
+    goal_id: UUID
+
+
+class GoalAllocationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    allocation_id: UUID
+    period: Literal["week", "month", "year"]
+    contributions: list[GoalContribution] = Field(min_length=1, max_length=100)
 
 
 Plan = Literal["budgets", "goals", "subscriptions"]
@@ -182,6 +204,23 @@ async def database(credentials: Credentials):
 Database = Annotated[httpx.AsyncClient, Depends(database)]
 
 
+class ResetConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    code: Annotated[str, StringConstraints(pattern=r"^[0-9]{6,10}$")]
+
+
+@app.post("/v1/account/reset/request")
+async def send_account_reset(client: Database):
+    return await request_reset(client)
+
+
+@app.post("/v1/account/reset/confirm", status_code=204)
+async def reset_account(confirmation: ResetConfirmation, client: Database):
+    await confirm_reset(client, confirmation.request_id, confirmation.code)
+    return Response(status_code=204)
+
+
 async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_missing=False, **kwargs):
     try:
         response = await client.request(method, path, **kwargs)
@@ -194,6 +233,8 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
             code = response.json().get("code")
         except (ValueError, AttributeError):
             code = None
+        if path in {"budgets", "savings_goals"} and code in {"42703", "PGRST204"}:
+            raise HTTPException(503, "Budget and goal priorities need migration 015 in Supabase.")
         if code in {"PGRST202", "PGRST205", "42P01"}:
             if allow_missing:
                 return None
@@ -205,6 +246,10 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
                 raise HTTPException(503, "Hunt participation and notifications need migration 010 in Supabase.")
             if path in {"budgets", "savings_goals", "subscriptions", "rpc/sync_my_subscriptions"}:
                 raise HTTPException(503, "Planning needs the private planning migration in your development database.")
+            if path in {"recurring_income", "rpc/sync_my_recurring_income"}:
+                raise HTTPException(503, "Recurring income needs migration 013 in Supabase.")
+            if path in {"goal_allocations", "rpc/allocate_to_goals"}:
+                raise HTTPException(503, "Goal savings need migration 015 in Supabase.")
             raise HTTPException(503, "Receipt tables are missing. Apply the receipt migration in Supabase.")
         if code == "23514" and path == "subscriptions" and kwargs.get("json", {}).get("cadence") in {"yearly", "yearly_split"}:
             raise HTTPException(503, "Apply migration 004 in Supabase to enable yearly subscriptions.")
@@ -216,12 +261,17 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
             raise HTTPException(409, "This hunt week has ended or is unavailable. Refresh the Hunt.")
         if code == "23505" and path == "budgets":
             raise HTTPException(409, "A budget already exists for this category.")
+        if code == "22023" and path == "rpc/allocate_to_goals":
+            raise HTTPException(409, "The available balance or goal amounts changed. Check your plan and try again.")
         raise HTTPException(502, "The database could not complete this request.")
     return response.json() if response.content else None
 
 
 async def ledger_entries(client: httpx.AsyncClient):
-    await request(client, "POST", "rpc/sync_my_subscriptions", json={}, allow_missing=True)
+    await asyncio.gather(
+        request(client, "POST", "rpc/sync_my_subscriptions", json={}, allow_missing=True),
+        request(client, "POST", "rpc/sync_my_recurring_income", json={}, allow_missing=True),
+    )
     entries = []
     while True:
         page = await request(client, "GET", "ledger_entries", params={
@@ -272,11 +322,35 @@ async def join_current_hunt(join: HuntJoin, client: Database):
 
 @app.get("/v1/ledger")
 async def list_ledger(client: Database):
-    entries, preferences = await asyncio.gather(
+    entries, preferences, allocations = await asyncio.gather(
         ledger_entries(client),
         request(client, "GET", "ledger_preferences", params={"select": "monthStartDay"}),
+        list_goal_allocations(client),
     )
-    return {"entries": entries, "monthStartDay": preferences[0]["monthStartDay"] if preferences else 1}
+    data = {"entries": entries, "monthStartDay": preferences[0]["monthStartDay"] if preferences else 1}
+    if allocations is not None:
+        data["goalAllocations"] = allocations
+    return data
+
+
+async def list_goal_allocations(client: httpx.AsyncClient):
+    allocations = []
+    while True:
+        page = await request(client, "GET", "goal_allocations", allow_missing=True, params={
+            "select": "goal_id,allocated_on,amount_minor", "order": "allocated_on.desc,request_id,goal_id",
+            "limit": PAGE_SIZE, "offset": len(allocations),
+        })
+        if page is None:
+            return None
+        allocations.extend(page)
+        if len(page) < PAGE_SIZE:
+            return allocations
+
+
+@app.post("/v1/goals/allocate", status_code=204)
+async def allocate_goals(allocation: GoalAllocationInput, client: Database):
+    await request(client, "POST", "rpc/allocate_to_goals", json=allocation.model_dump(mode="json"))
+    return Response(status_code=204)
 
 
 @app.post("/v1/transactions", status_code=201)
@@ -300,16 +374,52 @@ async def save_preferences(preferences: Preferences, client: Database):
     return preferences
 
 
+INCOME_FIELDS = "id,name,category,merchant,amount_minor,starts_on,cadence,next_due"
+
+
+@app.get("/v1/recurring-income")
+async def list_recurring_income(client: Database):
+    await request(client, "POST", "rpc/sync_my_recurring_income", json={})
+    schedules = []
+    while True:
+        rows = await request(client, "GET", "recurring_income", params={
+            "select": INCOME_FIELDS, "order": "next_due.asc,id.asc", "limit": PAGE_SIZE, "offset": len(schedules),
+        })
+        schedules.extend(rows)
+        if len(rows) < PAGE_SIZE:
+            return schedules
+
+
+@app.post("/v1/recurring-income", status_code=201)
+async def create_recurring_income(income: RecurringIncomeInput, client: Database):
+    rows = await request(client, "POST", "recurring_income", json=income.model_dump(mode="json"),
+                         params={"select": INCOME_FIELDS}, headers={"Prefer": "return=representation"})
+    return rows[0]
+
+
+@app.delete("/v1/recurring-income/{income_id}", status_code=204)
+async def stop_recurring_income(income_id: UUID, client: Database):
+    await request(client, "POST", "rpc/sync_my_recurring_income", json={})
+    await request(client, "DELETE", "recurring_income", params={"id": f"eq.{income_id}"})
+    return Response(status_code=204)
+
+
 @app.get("/v1/planning/{plan}")
 async def list_planning(plan: Plan, client: Database):
     table, fields, _ = PLANNING[plan]
     if plan == "subscriptions":
         await request(client, "POST", "rpc/sync_my_subscriptions", json={})
     rows = []
+    select = fields if plan == "subscriptions" else fields + ",priority"
     while True:
-        page = await request(client, "GET", table, params={
-            "select": fields, "order": "id.asc", "limit": PAGE_SIZE, "offset": len(rows),
-        })
+        params = {"select": select, "order": "id.asc", "limit": PAGE_SIZE, "offset": len(rows)}
+        try:
+            page = await request(client, "GET", table, params=params)
+        except HTTPException as error:
+            if select == fields or error.detail != "Budget and goal priorities need migration 015 in Supabase.":
+                raise
+            select = fields
+            continue
         rows.extend(page)
         if len(page) < PAGE_SIZE:
             return rows
@@ -323,11 +433,19 @@ async def write_plan(plan: Plan, payload: dict, client: Database, entry_id: UUID
         raise HTTPException(422, "Check the planning fields and try again.") from exc
     if plan == "subscriptions" and entry_id is not None:
         await request(client, "POST", "rpc/sync_my_subscriptions", json={})
-    params = {"select": fields}
+    params = {"select": fields if plan == "subscriptions" else fields + ",priority"}
     if entry_id is not None:
         params["id"] = f"eq.{entry_id}"
-    rows = await request(client, "POST" if entry_id is None else "PATCH", table, params=params,
-                         json=value.model_dump(mode="json"), headers={"Prefer": "return=representation"})
+    method = "POST" if entry_id is None else "PATCH"
+    data = value.model_dump(mode="json", exclude_none=True)
+    headers = {"Prefer": "return=representation"}
+    try:
+        rows = await request(client, method, table, params=params, json=data, headers=headers)
+    except HTTPException as error:
+        if params["select"] == fields or data.get("priority") not in {None, "normal"} or error.detail != "Budget and goal priorities need migration 015 in Supabase.":
+            raise
+        data.pop("priority", None)
+        rows = await request(client, method, table, params={**params, "select": fields}, json=data, headers=headers)
     if not rows:
         raise HTTPException(404, "This record no longer exists.")
     return rows[0]

@@ -7,6 +7,7 @@ import { DeleteTransaction } from "@/components/features/delete-transaction";
 import { FeaturePage } from "@/components/features/feature-page";
 import { PageShell } from "@/components/layout/page-shell";
 import { AddTransactionButton } from "@/components/features/add-transaction";
+import { RecurringIncome } from "@/components/features/recurring-income";
 import { useLedger } from "@/lib/use-ledger";
 import { formatMinor, formatReceiptDate } from "@/lib/finance-format";
 
@@ -25,6 +26,7 @@ function Activity() {
           <p><strong>Receipt saved.</strong> {saved.name} · {formatMinor(Math.abs(saved.amountMinor))}</p>
           <Link href={"/receipts?receipt=" + saved.id} className="inline-flex min-h-9 items-center font-semibold underline">View receipt</Link>
         </div>}
+        <RecurringIncome />
         <section className="rounded-2xl border border-[#e4e9e2] bg-white p-4 sm:p-6">
           <h2 className="font-semibold">All activity · {report.rows.length} entries</h2>
           {!report.rows.length && <p className="mt-2 text-sm text-[#59685e]">Your saved transactions will appear here.</p>}

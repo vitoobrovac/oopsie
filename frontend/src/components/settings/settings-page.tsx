@@ -5,6 +5,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { useAccount } from "@/components/account/account-provider";
 import { saveMotionPreference, useReducedMotionPreference } from "@/lib/motion-preference";
 import { HuntProfileSetting } from "./hunt-profile-setting";
+import { AccountReset } from "./account-reset";
 import { useLedger } from "@/lib/use-ledger";
 
 const field = "mt-2 min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 py-2 text-base";
@@ -26,6 +27,7 @@ export function SettingsPage() {
       <MonthStartSetting />
       <WeekStartSetting key={session?.user.id} />
       <MotionSetting />
+      <AccountReset key={session?.user.id} />
     </div>
   );
 }

@@ -1,8 +1,10 @@
 import { subscriptionCategory, yearlyExpenseCategory, type ManualEntry } from "./ledger";
 
 export type Plan = "budgets" | "goals" | "subscriptions";
-export type Budget = { id: string; category: string; amount_minor: number };
-export type Goal = { id: string; name: string; amount_minor: number; saved_minor: number };
+export type Priority = "low" | "normal" | "high";
+export const priorityWeight = { low: 1, normal: 2, high: 3 } satisfies Record<Priority, number>;
+export type Budget = { id: string; category: string; amount_minor: number; priority?: Priority };
+export type Goal = { id: string; name: string; amount_minor: number; saved_minor: number; priority?: Priority };
 export type Cadence = "weekly" | "monthly" | "yearly" | "yearly_split";
 export type Subscription = { id: string; name: string; amount_minor: number; starts_on: string; next_due: string; cadence: Cadence; active: boolean };
 export type PlanItem = Budget | Goal | Subscription;

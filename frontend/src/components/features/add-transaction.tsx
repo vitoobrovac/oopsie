@@ -5,37 +5,39 @@ import { useId, useState, type FormEvent } from "react";
 import { dismissModal, Modal } from "@/components/layout/modal";
 import { Toast } from "@/components/layout/toast";
 import { Icon } from "@/components/layout/icon";
-import { useAccount } from "@/components/account/account-provider";
+import { accountRequest, useAccount } from "@/components/account/account-provider";
 import { localToday } from "@/lib/use-ledger";
 import { expenseCategories, isDate, parseAmount } from "@/lib/ledger";
 
-const incomeCategories = [["Salary", "Salary"], ["Freelance", "Freelance"], ["Other income", "Other income"]];
+const incomeCategories = [["Salary", "Salary"], ["Freelance", "Freelance"], ["Gift", "Gift"], ["Other income", "Other income"]];
 const field = "mt-1 min-h-11 w-full rounded-xl border border-[#dce4d9] bg-white px-3 py-2 text-base";
 
 export function AddTransactionButton() {
   const { remote } = useAccount();
   const [open, setOpen] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState("");
   return (
     <>
-      <button disabled={!remote?.data} onClick={() => { setSaved(false); setOpen(true); }} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#183c31] px-3 text-sm font-medium text-white disabled:opacity-50">
+      <button disabled={!remote?.data} onClick={() => { setSaved(""); setOpen(true); }} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#183c31] px-3 text-sm font-medium text-white disabled:opacity-50">
         <Icon name="plus" className="size-4" />Add transaction
       </button>
-      {open && <TransactionDialog onClose={() => setOpen(false)} onSave={() => { setOpen(false); setSaved(true); }} />}
-      {saved && <Toast dismiss={() => setSaved(false)}>Transaction saved to your account.</Toast>}
+      {open && <TransactionDialog onClose={() => setOpen(false)} onSave={(message) => { setOpen(false); setSaved(message); }} />}
+      {saved && <Toast dismiss={() => setSaved("")}>{saved}</Toast>}
     </>
   );
 }
 
-function TransactionDialog({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
-  const { create: saveEntry } = useAccount();
+function TransactionDialog({ onClose, onSave }: { onClose: () => void; onSave: (message: string) => void }) {
+  const { create: saveEntry, session, refreshLedger } = useAccount();
   const [pending, setPending] = useState(false);
   const titleId = useId();
   const [manual, setManual] = useState(false);
   const [kind, setKind] = useState<"expense" | "income">("expense");
+  const [cadence, setCadence] = useState("once");
   const [category, setCategory] = useState("");
   const [error, setError] = useState("");
   const today = localToday();
+  const recurring = kind === "income" && cadence !== "once";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -46,20 +48,29 @@ function TransactionDialog({ onClose, onSave }: { onClose: () => void; onSave: (
     const date = String(data.get("date") ?? "");
     if (!name) return setError("Enter a description.");
     if (amountMinor === null) return setError("Enter an amount above zero with up to two decimal places, such as 12,50.");
-    if (!isDate(date) || date > today) return setError("Choose a valid date up to today.");
+    if (!isDate(date) || (recurring ? date < today || date > "9999-01-01" : date > today)) {
+      return setError(recurring ? "Choose a first payment date of today or later." : "Choose a valid date up to today.");
+    }
+    if (!session) return setError("Sign in to continue.");
     setPending(true);
+    setError("");
     try {
-      await saveEntry({
-        name, date, category: category || (kind === "income" ? "Income" : "Uncategorized"),
-        merchant: String(data.get("merchant") ?? "").trim(),
-        amountMinor: kind === "income" ? amountMinor : -amountMinor,
-      });
+      const label = category || (kind === "income" ? "Income" : "Uncategorized");
+      const merchant = String(data.get("merchant") ?? "").trim();
+      if (recurring) {
+        await accountRequest(session, "recurring-income", { method: "POST", body: JSON.stringify({
+          name, category: label, merchant, amount_minor: amountMinor, starts_on: date, cadence,
+        }) });
+        refreshLedger();
+      } else {
+        await saveEntry({ name, date, category: label, merchant, amountMinor: kind === "income" ? amountMinor : -amountMinor });
+      }
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not save the entry. Try again.");
       setPending(false);
       return;
     }
-    onSave();
+    onSave(recurring ? "Recurring income scheduled." : "Transaction saved to your account.");
   }
 
   return (
@@ -99,7 +110,7 @@ function TransactionDialog({ onClose, onSave }: { onClose: () => void; onSave: (
               {(["expense", "income"] as const).map((option) => (
                 <label key={option} className="flex min-h-11 items-center gap-2 rounded-xl border border-[#dce4d9] px-3 capitalize has-checked:bg-[#eaf1e7]">
                   <input type="radio" name="type" value={option} checked={kind === option}
-                    onChange={() => { setKind(option); setCategory(""); }} />{option}
+                    onChange={() => { setKind(option); setCategory(""); setCadence("once"); }} />{option}
                 </label>
               ))}
             </div>
@@ -107,12 +118,20 @@ function TransactionDialog({ onClose, onSave }: { onClose: () => void; onSave: (
           <label className="text-sm font-medium">Description (required)
             <input name="description" required maxLength={120} placeholder={kind === "expense" ? "e.g. Dinner with friends" : "e.g. November salary"} className={field} />
           </label>
+          {kind === "income" && <label className="text-sm font-medium">Repeat
+            <select className={field} value={cadence} onChange={(event) => setCadence(event.target.value)}>
+              <option value="once">One time</option>
+              <option value="weekly">Every week</option>
+              <option value="monthly">Every month</option>
+              <option value="yearly">Every year</option>
+            </select>
+          </label>}
           <div className="grid grid-cols-2 gap-2">
             <label className="min-w-0 text-sm font-medium">Amount in EUR (required)
               <input name="amount" required inputMode="decimal" maxLength={13} placeholder="12,50" className={field} />
             </label>
-            <label className="min-w-0 text-sm font-medium">Date
-              <input name="date" type="date" required defaultValue={today} min="1900-01-01" max={today} className={field} />
+            <label className="min-w-0 text-sm font-medium">{recurring ? "First payment" : "Date"}
+              <input name="date" type="date" required defaultValue={today} min={recurring ? today : "1900-01-01"} max={recurring ? "9999-01-01" : today} className={field} />
             </label>
           </div>
           <fieldset>
@@ -132,7 +151,7 @@ function TransactionDialog({ onClose, onSave }: { onClose: () => void; onSave: (
           </label>
           {error && <p role="alert" className="text-sm text-red-800">{error}</p>}
           <button type="submit" disabled={pending} className="min-h-11 rounded-xl bg-[#183c31] px-4 text-sm font-semibold text-white">
-            {pending ? "Saving…" : "Save " + kind}
+            {pending ? "Saving…" : recurring ? "Schedule income" : "Save " + kind}
           </button>
         </form>
       )}

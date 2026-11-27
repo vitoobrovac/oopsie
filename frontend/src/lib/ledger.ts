@@ -1,4 +1,5 @@
 import { formatMinor, formatReceiptDate } from "./finance-format";
+import type { GoalAllocation } from "./goal-savings";
 
 export const subscriptionCategory = "Subscriptions";
 export const yearlyExpenseCategory = "Yearly expenses";
@@ -51,7 +52,7 @@ function summarize(rows: ManualEntry[]) {
   return { spent, income, net: income - spent };
 }
 
-export function ledgerReport(entries: ManualEntry[], day: number, today: string) {
+export function ledgerReport(entries: ManualEntry[], day: number, today: string, allocations: GoalAllocation[] = []) {
   const rows = entries
     .filter((entry) => entry.date <= today)
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -70,6 +71,9 @@ export function ledgerReport(entries: ManualEntry[], day: number, today: string)
   const getPeriod = (period: string) => summarize(grouped.get(period) ?? []);
   const current = getPeriod(start);
   const previous = getPeriod(previousStart);
+  const earmarked = allocations.reduce((sum, allocation) =>
+    allocation.allocated_on >= start && allocation.allocated_on <= today ? sum + allocation.amount_minor : sum, 0);
+  const left = current.net - earmarked;
   const range = (from: string, until: string) => {
     const end = new Date(until);
     end.setUTCDate(end.getUTCDate() - 1);
@@ -77,7 +81,7 @@ export function ledgerReport(entries: ManualEntry[], day: number, today: string)
   };
 
   return {
-    rows, start, nextStart, current,
+    rows, start, nextStart, current, left,
     range: range(start, nextStart),
     chart: labels.map((date) => ({ start: date, month: date.slice(0, 7), ...getPeriod(date) })),
     cards: [
@@ -85,7 +89,7 @@ export function ledgerReport(entries: ManualEntry[], day: number, today: string)
       { id: "current", title: "Spent this period", value: formatMinor(current.spent), note: "Through " + formatReceiptDate(today) },
       { id: "previous", title: "Spent last period", value: formatMinor(previous.spent), note: range(previousStart, start) },
       { id: "income", title: "Income this period", value: formatMinor(current.income), note: "Recorded income" },
-      { id: "balance", title: "Left this period", value: formatMinor(current.net), note: "Income minus spending so far" },
+      { id: "balance", title: "Left this month", value: formatMinor(left), note: "Income after spending and goal savings" },
     ] as const,
     categories(period = start) {
       const totals = new Map<string, number>();

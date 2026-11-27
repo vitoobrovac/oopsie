@@ -118,6 +118,30 @@ select cron.schedule(
 
 [Supabase production checklist](https://supabase.com/docs/guides/deployment/going-into-prod) · [Next.js hosting guide](https://nextjs.org/docs/app/guides/self-hosting)
 
+## Enable recurring income, goal savings, and account reset
+
+Apply `013_recurring_income.sql`, `014_account_reset.sql`, and `015_goal_savings.sql` from the Supabase migrations folder in that order. Recurring income uses the signed-in user's ledger and catches up due payments when the ledger is loaded. Stopping a schedule preserves income already recorded.
+
+The Overview's **Put into goal savings** action appears when the selected week, month, or year has a positive available balance. Allocations reduce what is available and add to goal progress without changing income or spending totals. The split uses goal priority and remaining target, and caps each contribution at the amount the goal still needs. The user moves any real money separately.
+
+To enable reset email in the hosted app:
+
+1. In Supabase **Authentication → Email Templates → Magic Link**, set the subject to **Confirm your Oopsie data reset**. Paste the body below. The app uses this OTP template for reset. Email/password signup and Google login keep their existing settings.
+2. In Supabase **Authentication → SMTP Settings**, configure a custom SMTP provider if your project uses default mail and needs to send to addresses outside the project team. Verify delivery with a disposable test account before enabling the flow for real users.
+3. In the FastAPI service's environment, set `SUPABASE_SECRET_KEY` to a server-only secret key from this Supabase project. A legacy `SUPABASE_SERVICE_ROLE_KEY` also works. Keep the key exclusively on the API, including in local development.
+4. In the test account, request a code through **Settings → Reset my data**. Check that a wrong code leaves entries intact. Confirm with the email code and check that the ledger, receipts, schedules, planning data and Hunt progress are cleared while sign-in still works.
+
+```html
+<h2>Confirm your Oopsie data reset</h2>
+<p>Enter this code in Oopsie Settings to confirm that you want to permanently erase your app data.</p>
+<p><strong>{{ .Token }}</strong></p>
+<p>If you did not request a reset, ignore this email.</p>
+```
+
+The request expires after 15 minutes. The reset also removes receipt photos submitted for scan feedback. Resetting your app data keeps your Supabase account and sign-in method.
+
+[Supabase email templates](https://supabase.com/docs/guides/auth/auth-email-templates) · [Supabase SMTP settings](https://supabase.com/docs/guides/auth/auth-smtp) · [Supabase API keys](https://supabase.com/docs/guides/api/api-keys)
+
 ## Move the website to a Render Static Site
 
 Open [Oopsie’s static website](https://oopsie-static.onrender.com/) on your phone. Replace any bookmark or home-screen shortcut that opens the old Render web service or the API address. The static site serves the app’s HTML, JavaScript and CSS as soon as the browser connects.

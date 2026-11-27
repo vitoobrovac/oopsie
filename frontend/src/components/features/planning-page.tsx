@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState, type CSSProperties, type FormEvent } from "react";
+import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { accountRequest, useAccount } from "@/components/account/account-provider";
 import { FeaturePage } from "@/components/features/feature-page";
@@ -9,8 +10,9 @@ import { PageShell } from "@/components/layout/page-shell";
 import { formatMinor, formatReceiptDate } from "@/lib/finance-format";
 import { expenseCategories, isDate, parseAmount, yearlyExpenseCategory } from "@/lib/ledger";
 import { localToday, useLedger } from "@/lib/use-ledger";
+import { amountsByGoal } from "@/lib/goal-savings";
 
-import { deleteLocalPlan, isYearlyCadence, listLocalPlans, saveLocalPlan, scheduledPayment, useLocalPlanning, type Budget, type Cadence, type Plan, type PlanItem as Item } from "@/lib/local-planning";
+import { deleteLocalPlan, isYearlyCadence, listLocalPlans, priorityWeight, saveLocalPlan, scheduledPayment, useLocalPlanning, type Budget, type Cadence, type Plan, type PlanItem as Item } from "@/lib/local-planning";
 
 type Editor = { item?: Item; remove?: boolean };
 
@@ -49,6 +51,7 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
   const [editor, setEditor] = useState<Editor | null>(null);
   const copy = pages[plan];
   const path = "planning/" + plan;
+  const allocated = amountsByGoal(remote?.data?.goalAllocations ?? []);
   const categoryLabels = new Map<string, string>(expenseCategories.map(([label, value]) => [value, label]));
   for (const row of report.rows) {
     if (row.amountMinor < 0 && !categoryLabels.has(row.category)) categoryLabels.set(row.category, row.category);
@@ -60,7 +63,7 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
   }
   const ordered = [...(items ?? [])].sort((a, b) => {
     if ("next_due" in a && "next_due" in b) return Number(b.active) - Number(a.active) || a.next_due.localeCompare(b.next_due);
-    return itemName(a).localeCompare(itemName(b));
+    return priorityWeight[priorityOf(b)] - priorityWeight[priorityOf(a)] || itemName(a).localeCompare(itemName(b));
   });
 
   const groups = plan === "subscriptions" ? [
@@ -97,7 +100,7 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
       setItems((current) => [...(current ?? []).filter((item) => item.id !== saved.id), saved]);
     }
     setEditor(null);
-    if (plan === "subscriptions") {
+    if (plan === "subscriptions" || (plan === "goals" && editor?.remove)) {
       refreshLedger();
       setRevision((value) => value + 1);
     }
@@ -107,6 +110,12 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
     <FeaturePage title={copy.title} description={copy.description} cards={[]}
       subtitle={plan === "budgets" ? report.range : undefined}
       action={<button className={primary} disabled={!items || Boolean(loadError)} onClick={() => setEditor({})}>{copy.action}</button>}>
+      {plan !== "subscriptions" && <nav aria-label="Budget and goal planning" className="flex w-fit gap-1 rounded-xl bg-[#edf2eb] p-1">
+        {(["budgets", "goals"] as const).map((option) => <Link key={option} href={"/" + option} aria-current={option === plan ? "page" : undefined}
+          className={"inline-flex min-h-10 items-center rounded-lg px-3 text-sm font-semibold " + (option === plan ? "bg-white text-[#183c31]" : "text-[#59685e]")}>
+          {option === "budgets" ? "Budgets" : "Savings goals"}
+        </Link>)}
+      </nav>}
       {useLocalPlanning && <p className="text-xs text-[#59685e]">Local preview · Changes are saved in this browser.{plan === "budgets" && !remote?.data ? " Spending totals appear when the ledger is connected." : ""}</p>}
       {loadError ? (
         <p role="alert" className="rounded-2xl border border-[#e4e9e2] bg-white p-4 text-sm">
@@ -118,21 +127,26 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
         <div key={title ?? plan}>
           {title && <h2 className="mb-2 text-sm font-semibold text-[#31533c]">{title}</h2>}
           <ul className="grid gap-3 sm:grid-cols-2">
-            {records.map((item) => (
+            {records.map((item) => {
+              const saved = "saved_minor" in item ? item.saved_minor + (allocated.get(item.id) ?? 0) : 0;
+              return (
               <li key={item.id} className="min-w-0 rounded-2xl border border-[#e4e9e2] bg-white p-3 sm:p-4">
                 <div className="flex justify-between gap-2">
                   <div className="min-w-0">
                     <ItemHeading className="break-words font-semibold">{("category" in item && categoryLabels.get(item.category)) || itemName(item)}</ItemHeading>
+                    {!("cadence" in item) && <span className={"mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize " +
+                      (priorityOf(item) === "high" ? "bg-[#fff1d7] text-[#744314]" : "bg-[#edf2eb] text-[#31533c]")}>{priorityOf(item)} priority</span>}
                     {"next_due" in item && <p className="mt-1 text-sm text-[#59685e]">{formatMinor(item.amount_minor)} · {item.cadence === "yearly_split" ? "yearly, split into 12 entries" : item.cadence}</p>}
                   </div>
                   <button className={secondary} aria-label={"Edit " + itemName(item)} onClick={() => setEditor({ item })}>Edit</button>
                 </div>
                 {"category" in item ? <BudgetProgress item={item} spent={spending.get(item.category.trim().toLowerCase()) ?? 0} />
-                  : "saved_minor" in item ? <Progress amount={item.saved_minor} target={item.amount_minor} label="Saved" goal
-                      status={item.saved_minor >= item.amount_minor ? "Goal reached" : formatMinor(item.amount_minor - item.saved_minor) + " to go"} />
+                  : "saved_minor" in item ? <Progress amount={saved} target={item.amount_minor} label="Saved" goal
+                      status={saved >= item.amount_minor ? "Goal reached" : formatMinor(item.amount_minor - saved) + " to go"} />
                   : <p className="mt-3 text-sm font-medium text-[#31533c]">{item.active ? "Next entry " + formatReceiptDate(item.next_due) + (item.cadence === "yearly_split" ? " · " + formatMinor(scheduledPayment(item)) : "") : "Paused"}</p>}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       ))}
@@ -144,6 +158,10 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
 
 function itemName(item: Item) {
   return "category" in item ? item.category : item.name;
+}
+
+function priorityOf(item: Item | undefined) {
+  return item && "priority" in item ? item.priority ?? "normal" : "normal";
 }
 
 function BudgetProgress({ item, spent }: { item: Budget; spent: number }) {
@@ -198,8 +216,8 @@ function PlanForm({ plan, editor, categories, close, remove, commit }: {
       return;
     }
     const payload = {
-      budgets: { category: values.get("category"), amount_minor: amount },
-      goals: { name: values.get("name"), amount_minor: amount, saved_minor: savedMinor },
+      budgets: { category: values.get("category"), amount_minor: amount, priority: values.get("priority") },
+      goals: { name: values.get("name"), amount_minor: amount, saved_minor: savedMinor, priority: values.get("priority") },
       subscriptions: { name: values.get("name"), amount_minor: amount, starts_on: firstDate, cadence, active: values.has("active") },
     }[plan];
     setPending(true);
@@ -215,7 +233,8 @@ function PlanForm({ plan, editor, categories, close, remove, commit }: {
     <Modal titleId={titleId} onClose={close} placement="sheet" pending={pending}>
       <h2 id={titleId} className="text-lg font-semibold">{deleting ? "Delete " + copy.item + "?" : item ? "Edit " + copy.item : copy.action}</h2>
       <form onSubmit={submit} className="mt-3 space-y-3 text-sm">
-        {deleting ? <p>{plan === "subscriptions" ? "Future expenses will stop. Already recorded payments stay in your activity." : "Remove " + (item && itemName(item)) + " from your plans?"}</p> : (
+        {deleting ? <p>{plan === "subscriptions" ? "Future expenses will stop. Already recorded payments stay in your activity." : plan === "goals" ?
+          "Any money earmarked in Oopsie for this goal will go back to the available balance for its original period." : "Remove " + (item && itemName(item)) + " from your plans?"}</p> : (
           <>
             {plan === "budgets" ? <label className="block font-medium">Category
               <select name="category" defaultValue={defaultCategory} required className={field}>
@@ -229,8 +248,14 @@ function PlanForm({ plan, editor, categories, close, remove, commit }: {
             <label className="block font-medium">{amountLabel}
               <input name="amount" value={amountText} onChange={(event) => setAmountText(event.target.value)} inputMode="decimal" required className={field} placeholder="0.00" />
             </label>
-            {plan === "goals" && <label className="block font-medium">Saved so far (€)
+            {plan !== "subscriptions" && <label className="block font-medium">Priority
+              <select name="priority" defaultValue={priorityOf(item)} className={field}>
+                <option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option>
+              </select>
+            </label>}
+            {plan === "goals" && <label className="block font-medium">Manually saved (€)
               <input name="saved" defaultValue={item && "saved_minor" in item ? (item.saved_minor / 100).toFixed(2) : ""} inputMode="decimal" className={field} placeholder="0.00" />
+              <span className="mt-1 block text-xs font-normal text-[#59685e]">Amounts set aside from Overview are added separately.</span>
             </label>}
             {plan === "subscriptions" && <>
               <div className="grid grid-cols-2 gap-2">

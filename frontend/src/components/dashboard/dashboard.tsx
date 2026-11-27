@@ -25,7 +25,7 @@ const negativeBalance = { surface: "border-[#762f3c] bg-[#762f3c] text-white", b
 
 export function Dashboard() {
   const { report } = useLedger();
-  const { displayName, weekStartDay } = useAccount();
+  const { displayName, weekStartDay, remote } = useAccount();
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState("");
   const categoryPeriod = report.chart.find((period) => period.start === selectedPeriod)?.start ?? report.start;
@@ -48,7 +48,7 @@ export function Dashboard() {
       <section className="grid grid-cols-6 gap-2 sm:grid-cols-5 sm:gap-3" aria-label="Spending summary">
         {report.cards.map((card) => {
           const { icon, surface, badge } = cardStyles[card.id];
-          const colors = card.id === "balance" && report.current.net < 0 ? negativeBalance : { surface, badge };
+          const colors = card.id === "balance" && report.left < 0 ? negativeBalance : { surface, badge };
           const columns = card.id === "income" || card.id === "balance" ? "col-span-3" : "col-span-2";
           return (
             <div key={card.id} className={columns + " min-w-0 rounded-2xl border p-2.5 sm:col-span-1 sm:p-3 lg:p-4 " + colors.surface}>
@@ -64,7 +64,8 @@ export function Dashboard() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <CashFlowChart rows={report.rows} today={localToday()} periodStart={report.start} nextPeriodStart={report.nextStart} weekStartDay={weekStartDay} />
+        <CashFlowChart rows={report.rows} today={localToday()} periodStart={report.start} nextPeriodStart={report.nextStart}
+          weekStartDay={weekStartDay} allocations={remote?.data?.goalAllocations} />
         <div className="grid content-start gap-2">
           <CategoryChart categories={report.categories(categoryPeriod)} period={"From " + formatReceiptDate(categoryPeriod)} />
           <label className="flex items-center justify-end gap-2 text-xs text-[#59685e]">

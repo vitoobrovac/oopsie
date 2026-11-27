@@ -3,6 +3,7 @@
 import { createClient, type Session } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { ManualEntry } from "@/lib/ledger";
+import type { GoalAllocation } from "@/lib/goal-savings";
 import type { Receipt } from "@/lib/receipts";
 import { deleteLocalSubscriptionEntry, localPlanningKey, localSubscriptionEntries, useLocalPlanning } from "@/lib/local-planning";
 
@@ -12,7 +13,7 @@ const publicApi = process.env.NEXT_PUBLIC_LUMA_API_URL;
 const apiUrl = !publicApi || /^http:\/\/(localhost|127\.0\.0\.1):8000\/?$/.test(publicApi) ? "/ledger-api" : publicApi;
 export const supabase = url && key ? createClient(url, key, { auth: { flowType: "pkce" } }) : null;
 
-export type LedgerData = { entries: ManualEntry[]; monthStartDay: number };
+export type LedgerData = { entries: ManualEntry[]; monthStartDay: number; goalAllocations?: GoalAllocation[] };
 type RemoteState = { owner: string; data?: LedgerData; error?: string };
 type ReceiptState = { owner: string; records?: Receipt[]; error?: string };
 type Account = {

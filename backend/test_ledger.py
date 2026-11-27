@@ -115,8 +115,10 @@ class LedgerApiTest(unittest.TestCase):
             calls.append(request)
             self.assertEqual(request.headers["authorization"], "Bearer test-user")
             self.assertEqual(request.headers["apikey"], "test-project")
-            if request.url.path.endswith("sync_my_subscriptions"):
+            if request.url.path.endswith(("sync_my_subscriptions", "sync_my_recurring_income")):
                 return httpx.Response(404, json={"code": "PGRST202"})
+            if request.url.path.endswith("goal_allocations"):
+                return httpx.Response(404, json={"code": "PGRST205"})
             if request.method == "GET":
                 result = [] if request.url.path.endswith("ledger_entries") else [{"monthStartDay": 25}]
                 return httpx.Response(200, json=result)
@@ -141,7 +143,57 @@ class LedgerApiTest(unittest.TestCase):
             self.assertEqual(client.post("/v1/transactions", json=ENTRY).json()["id"], ENTRY_ID)
             self.assertEqual(client.put("/v1/preferences", json={"monthStartDay": 26}).status_code, 200)
             self.assertEqual(client.delete(f"/v1/transactions/{ENTRY_ID}").status_code, 204)
-            self.assertEqual(len(calls), 6)
+            self.assertEqual(len(calls), 8)
+
+    def test_goal_allocation_uses_owner_session_and_reports_changed_balance(self):
+        original_client = httpx.AsyncClient
+        payload = {"allocation_id": ENTRY_ID, "period": "week",
+                   "contributions": [{"goal_id": ENTRY_ID, "amount_minor": 2500}]}
+
+        def database(request):
+            self.assertEqual(request.headers["authorization"], "Bearer test-user")
+            self.assertTrue(request.url.path.endswith("/rpc/allocate_to_goals"))
+            self.assertEqual(json.loads(request.content), payload)
+            return httpx.Response(400, json={"code": "22023"})
+
+        env = {"SUPABASE_URL": "https://project.example", "SUPABASE_PUBLISHABLE_KEY": "test-project"}
+        with patch.dict(os.environ, env), patch("main.httpx.AsyncClient", side_effect=lambda **kw: original_client(
+            **kw, transport=httpx.MockTransport(database)
+        )), TestClient(app, headers={"Authorization": "Bearer test-user"}) as client:
+            self.assertEqual(client.post("/v1/goals/allocate", json={**payload, "period": "anything"}).status_code, 422)
+            self.assertEqual(client.post("/v1/goals/allocate", json={**payload, "user_id": ENTRY_ID}).status_code, 422)
+            self.assertEqual(client.post("/v1/goals/allocate", json=payload).status_code, 409)
+
+    def test_recurring_income_preserves_owner_token_and_validates_repeat(self):
+        original_client = httpx.AsyncClient
+        payload = {"name": "Salary", "amount_minor": 255000, "starts_on": "2026-12-01",
+                   "cadence": "monthly", "category": "Salary", "merchant": "Employer"}
+        saved = {"id": ENTRY_ID, "next_due": "2026-12-01", **payload}
+
+        def database(request):
+            self.assertEqual(request.headers["authorization"], "Bearer test-user")
+            if request.url.path.endswith("/rpc/sync_my_recurring_income"):
+                return httpx.Response(204)
+            self.assertTrue(request.url.path.endswith("/recurring_income"))
+            if request.method == "POST":
+                self.assertEqual(json.loads(request.content), payload)
+                return httpx.Response(201, json=[saved])
+            if request.method == "DELETE":
+                self.assertEqual(request.url.params["id"], "eq." + ENTRY_ID)
+                return httpx.Response(204)
+            return httpx.Response(200, json=[saved])
+
+        env = {"SUPABASE_URL": "https://project.example", "SUPABASE_PUBLISHABLE_KEY": "test-project"}
+        with patch.dict(os.environ, env), patch("main.httpx.AsyncClient", side_effect=lambda **kw: original_client(
+            **kw, transport=httpx.MockTransport(database)
+        )), TestClient(app, headers={"Authorization": "Bearer test-user"}) as client:
+            path = "/v1/recurring-income"
+            self.assertEqual(client.post(path, json={**payload, "cadence": "yearly_split"}).status_code, 422)
+            self.assertEqual(client.post(path, json={**payload, "amount_minor": -2500}).status_code, 422)
+            self.assertEqual(client.post(path, json={**payload, "user_id": ENTRY_ID}).status_code, 422)
+            self.assertEqual(client.post(path, json=payload).json(), saved)
+            self.assertEqual(client.get(path).json(), [saved])
+            self.assertEqual(client.delete(f"{path}/{ENTRY_ID}").status_code, 204)
 
 
 if __name__ == "__main__":
