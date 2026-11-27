@@ -58,7 +58,7 @@ function AccountDialog({ name, email, onClose }: { name: string; email?: string;
 export function LedgerContent({ children }: { children: ReactNode }) {
   const { remote, retry } = useAccount();
   if (remote?.data) return children;
-  if (!remote?.error) return <AppLoading label="Loading your private ledger…" />;
+  if (!remote?.error) return <AppLoading label="Loading your private ledger…" waitingLabel="The server is taking longer than usual. Oopsie will keep trying." />;
   return (
     <div role="alert" className="mx-auto mb-4 max-w-7xl rounded-xl border border-[#dce4d9] bg-white px-4 py-2 text-sm">
       {remote.error}

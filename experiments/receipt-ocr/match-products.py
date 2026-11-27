@@ -4,11 +4,13 @@ import argparse
 import json
 import re
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 LAB = Path(__file__).resolve().parent
 
 
+@lru_cache(maxsize=4096)
 def normalize(text: str) -> str:
     """Make capitalization, accents and punctuation irrelevant for matching."""
     decomposed = unicodedata.normalize("NFKD", text.casefold())

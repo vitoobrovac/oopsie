@@ -37,3 +37,12 @@ Both photos show the same receipt. Amounts were scored as exact numeric tokens i
 | Tesseract German | 1/16 | 4/16 | Angle 2 |
 
 PaddleOCR also read the store and date on both photos. The parser matched all 13 purchase lines and 3 adjustments from each photo and reconciled both drafts to the printed total. This comparison establishes a winner for these two photos of one receipt. Other stores and layouts need their own checks.
+## Check scanned receipts
+
+From the repository root, with the same Python environment used by the app, run:
+
+```powershell
+python experiments/receipt-ocr/check_receipts.py --all
+```
+
+This runs the app’s image-to-draft pipeline locally and reports how long each scan takes, whether the amounts reconcile, and which expected fields differ. Drop `--all` to run just the five labeled examples. The checker exits with a failure if a labeled photo is missing or differs from its expected result. Add verified expectations to `receipt-expectations.json` as you add samples. The photos and OCR outputs stay local.

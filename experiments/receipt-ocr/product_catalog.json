@@ -78,8 +78,72 @@
     "display_name": "Bananas",
     "type": "Bananas",
     "category": "Fruit",
-    "receipt_keywords": ["BANANEN", "BANANAS"],
+    "receipt_keywords": ["BANANEN", "BANANAS", "BANANA"],
     "search_aliases": ["banana"]
+  },
+  {
+    "id": "zucchini",
+    "display_name": "Zucchini",
+    "type": "Zucchini",
+    "category": "Vegetables",
+    "receipt_keywords": ["ZUCCHINI", "ZUCHINNI", "COURGETTE"],
+    "search_aliases": ["zucchini", "courgette"]
+  },
+  {
+    "id": "brussels-sprouts",
+    "display_name": "Brussels sprouts",
+    "type": "Brussels sprouts",
+    "category": "Vegetables",
+    "receipt_keywords": ["BRUSSEL SPROUTS", "BRUSSELS SPROUTS"],
+    "search_aliases": ["sprouts", "brussels sprouts"]
+  },
+  {
+    "id": "grapes",
+    "display_name": "Grapes",
+    "type": "Grapes",
+    "category": "Fruit",
+    "receipt_keywords": ["GRAPES", "WEINTRAUBEN", "GROŽĐE"],
+    "search_aliases": ["grape", "grapes"]
+  },
+  {
+    "id": "snow-peas",
+    "display_name": "Snow peas",
+    "type": "Snow peas",
+    "category": "Vegetables",
+    "receipt_keywords": ["SNOW PEAS", "PEAS SNOW", "MANGETOUT"],
+    "search_aliases": ["peas", "snow peas", "mangetout"]
+  },
+  {
+    "id": "burger",
+    "display_name": "Burger",
+    "type": "Restaurant meal",
+    "category": "Dining out",
+    "receipt_keywords": ["BURGER", "HAMBURGER", "CHEESEBURGER"],
+    "search_aliases": ["burger", "sandwich"]
+  },
+  {
+    "id": "caesar-salad",
+    "display_name": "Caesar salad",
+    "type": "Restaurant meal",
+    "category": "Dining out",
+    "receipt_keywords": ["CAESAR SALAD", "CESAR SALAD"],
+    "search_aliases": ["salad", "caesar"]
+  },
+  {
+    "id": "restaurant-soft-drink",
+    "display_name": "Soft drink",
+    "type": "Restaurant drink",
+    "category": "Dining out",
+    "receipt_keywords": ["SOFT DRINK", "SOFT DRINKS", "S0FT DRINK"],
+    "search_aliases": ["soda", "soft drink"]
+  },
+  {
+    "id": "cheesecake",
+    "display_name": "Cheesecake",
+    "type": "Dessert",
+    "category": "Dining out",
+    "receipt_keywords": ["CHEESECAKE", "CHEESE CAKE"],
+    "search_aliases": ["cheesecake", "dessert"]
   },
   {
     "id": "pears",

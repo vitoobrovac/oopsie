@@ -19,12 +19,13 @@ const panel = "min-w-0 rounded-2xl border border-[#e4e9e2] bg-white p-4 sm:p-6";
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function InsightsPage() {
-  return <PageShell><Insights /></PageShell>;
+  const receipts = useReceipts();
+  return <PageShell><Insights receipts={receipts} /></PageShell>;
 }
 
-function Insights() {
+function Insights({ receipts }: { receipts: ReturnType<typeof useReceipts> }) {
   const { report, monthStartDay } = useLedger();
-  const { records, error, retry } = useReceipts();
+  const { records, error, retry } = receipts;
   const [range, setRange] = useState<Range>("current");
   const selectedStart = range === "previous" ? report.chart[1].start : report.start;
   const today = localToday();

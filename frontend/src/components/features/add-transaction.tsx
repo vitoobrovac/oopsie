@@ -5,19 +5,20 @@ import { useId, useState, type FormEvent } from "react";
 import { dismissModal, Modal } from "@/components/layout/modal";
 import { Toast } from "@/components/layout/toast";
 import { Icon } from "@/components/layout/icon";
-import { localToday, useLedger } from "@/lib/use-ledger";
+import { useAccount } from "@/components/account/account-provider";
+import { localToday } from "@/lib/use-ledger";
 import { expenseCategories, isDate, parseAmount } from "@/lib/ledger";
 
 const incomeCategories = [["Salary", "Salary"], ["Freelance", "Freelance"], ["Other income", "Other income"]];
 const field = "mt-1 min-h-11 w-full rounded-xl border border-[#dce4d9] bg-white px-3 py-2 text-base";
 
 export function AddTransactionButton() {
-  const { canWrite } = useLedger();
+  const { remote } = useAccount();
   const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   return (
     <>
-      <button disabled={!canWrite} onClick={() => { setSaved(false); setOpen(true); }} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#183c31] px-3 text-sm font-medium text-white disabled:opacity-50">
+      <button disabled={!remote?.data} onClick={() => { setSaved(false); setOpen(true); }} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#183c31] px-3 text-sm font-medium text-white disabled:opacity-50">
         <Icon name="plus" className="size-4" />Add transaction
       </button>
       {open && <TransactionDialog onClose={() => setOpen(false)} onSave={() => { setOpen(false); setSaved(true); }} />}
@@ -27,7 +28,7 @@ export function AddTransactionButton() {
 }
 
 function TransactionDialog({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
-  const { saveEntry } = useLedger();
+  const { create: saveEntry } = useAccount();
   const [pending, setPending] = useState(false);
   const titleId = useId();
   const [manual, setManual] = useState(false);

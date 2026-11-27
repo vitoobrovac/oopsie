@@ -120,6 +120,10 @@ select cron.schedule(
 
 ## Move the website to a Render Static Site
 
+Open [Oopsie’s static website](https://oopsie-static.onrender.com/) on your phone. Replace any bookmark or home-screen shortcut that opens the old Render web service or the API address. The static site serves the app’s HTML, JavaScript and CSS as soon as the browser connects.
+
+The separate FastAPI service still handles private data and OCR. If it uses Render’s free compute, it can go to sleep while idle. Oopsie shows its own loading state and retries reads during startup. To eliminate that API wake-up delay, switch the API service to compute that stays on. [Render’s free service behavior](https://render.com/docs/free#spinning-down-on-idle)
+
 Create the static site alongside the existing website so current testers can keep using the old link during verification. Keep the existing FastAPI Web Service and Supabase project.
 
 1. Push the latest code. In Render choose **New → Static Site**, connect the repository and select the same branch as your existing services.
@@ -135,8 +139,6 @@ Create the static site alongside the existing website so current testers can kee
    Copy `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from the existing website in Render. Set `NEXT_PUBLIC_LUMA_API_URL` to the public HTTPS address of your existing API service. The static build rejects a localhost API URL so it cannot accidentally ship one to phones. Next.js produces a separate HTML page for each route, so a catch-all redirect to the home page is unnecessary.
 3. On the API Web Service, set `LUMA_WEB_ORIGIN` to both website origins separated by a comma, for example `https://old-site.onrender.com,https://new-site.onrender.com`. Deploy the latest API code. In Supabase **Authentication → URL Configuration**, add the new website as an allowed redirect and keep the old URL during testing. When the new site is verified, make it the Site URL. If your Google OAuth client lists the website in **Authorized JavaScript origins**, add the new origin there. Keep its existing Supabase callback URL.
 4. On a phone, open the new URL in a private tab. Test sign-in, opening a receipt from product history, a full reload on a page like `/budgets/`, and photo upload. Share the new URL after verification. Keep the old website available until everyone has switched.
-
-The CDN serves the frontend immediately. The API remains a separate Web Service. A Free API service can still take about a minute to wake. To remove that wait for ledger requests, change the **API service's own instance type** to an always-on paid instance in Render, and check its OCR memory usage after deploying.
 
 For a local export check, run this from `frontend` in PowerShell. Set the API URL to the HTTPS address that the static site should call.
 

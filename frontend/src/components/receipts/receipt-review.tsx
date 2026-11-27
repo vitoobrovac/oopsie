@@ -26,6 +26,7 @@ type LineEdit = {
   unit: ReceiptLine["unit"];
   aliases: string[];
   review: boolean;
+  checkPrice: boolean;
   remember: boolean;
 };
 
@@ -77,11 +78,11 @@ function readAmount(value: string) {
 
 function blankLine(): LineEdit {
   return { key: newReceiptId(), kind: "product", original: "", name: "", category: "",
-    amount: "", quantity: "", unit: "unit", aliases: [], review: true, remember: false };
+    amount: "", quantity: "", unit: "unit", aliases: [], review: true, checkPrice: true, remember: false };
 }
 
 export function ReceiptReview() {
-  const { session, refreshLedger } = useAccount();
+  const { session, receiptSaved } = useAccount();
   const router = useRouter();
   const discardTitle = useId();
   const [receiptId, setReceiptId] = useState<string | null>(null);
@@ -147,7 +148,8 @@ export function ReceiptReview() {
     setLines(draft.lines.length ? draft.lines.map((item) => ({
       key: newReceiptId(), kind: item.kind, original: item.receipt_name, name: item.review && item.kind === "product" ? "" : item.display_name,
       category: item.category, amount: moneyInput(item.amount_minor), quantity: String(item.quantity ?? ""),
-      unit: item.unit, aliases: item.aliases, review: item.review, remember: item.review && item.kind === "product",
+      unit: item.unit, aliases: item.aliases, review: item.review, checkPrice: item.amount_minor === null,
+      remember: item.review && item.kind === "product",
     })) : [blankLine()]);
     setEditing(true);
   }
@@ -242,9 +244,10 @@ export function ReceiptReview() {
   const printedTotal = readAmount(total);
   const convertedTotal = quote && printedTotal ? euroTotal(printedTotal, quote.units_per_eur) : null;
   const needsProductLabel = (line: LineEdit) => line.kind === "product" && line.review;
-  const unanswered = lines.filter((line) => needsProductLabel(line) && (!line.name.trim() || !line.category.trim())).length;
+  const needsAttention = (line: LineEdit) => needsProductLabel(line) || line.checkPrice;
+  const unanswered = lines.filter(needsAttention).length;
   const reviewOrder = lines.map((line, index) => ({ line, index }))
-    .sort((a, b) => Number(needsProductLabel(b.line)) - Number(needsProductLabel(a.line)));
+    .sort((a, b) => Number(needsAttention(b.line)) - Number(needsAttention(a.line)));
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -275,14 +278,14 @@ export function ReceiptReview() {
     }
     setBusy("save");
     try {
-      await accountRequest(session, "receipts", {
+      const saved = await accountRequest<{ id: string }>(session, "receipts", {
         method: "POST", body: JSON.stringify({ id: receiptId, store: store.trim(), date: day, currency, rate_date: quote?.rate_date,
           total_minor: printedTotal, spending_category: categoryOverride || undefined, lines: cleanLines }),
       });
-      refreshLedger();
+      receiptSaved();
       if (!reviewNextReceipt()) {
         resetDraft();
-        router.replace("/receipts");
+        router.replace("/transactions?savedReceipt=" + encodeURIComponent(saved.id));
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not save the receipt.");
@@ -414,7 +417,7 @@ export function ReceiptReview() {
             <section aria-label="Receipt items" className="overflow-hidden rounded-2xl border border-[#e4e9e2] bg-white">
               <div className="flex justify-between gap-2 border-b border-[#e4e9e2] px-3 py-2 text-xs font-semibold sm:px-4">
                 <span>{lines.length} {lines.length === 1 ? "line" : "lines"}</span>
-                {unanswered > 0 && <span className="text-amber-900">{unanswered} need a name or category</span>}
+                {unanswered > 0 && <span className="text-amber-900">{unanswered} {unanswered === 1 ? "needs" : "need"} a quick check</span>}
               </div>
               <ul>
                 {reviewOrder.map(({ line, index }) => <ReviewLine key={line.key} line={line} number={index + 1} currency={currency}
@@ -428,7 +431,10 @@ export function ReceiptReview() {
             <div className="text-sm">
               <p className="font-semibold">Lines add up to {calculated === null ? "—" : formatDraftAmount(calculated, currency)}</p>
               {convertedTotal !== null && <p className="text-xs font-semibold text-[#31533c]">EUR total · {formatMinor(convertedTotal)}</p>}
-              {printedTotal && calculated !== printedTotal ? <p className="text-xs text-red-800">Printed total: {formatDraftAmount(printedTotal, currency)} · Check line amounts</p> : null}
+              {printedTotal !== null && calculated !== null && calculated !== printedTotal && (
+                <p className="text-xs text-red-800">{formatDraftAmount(Math.abs(printedTotal - calculated), currency)} {calculated < printedTotal ? "below" : "above"} the printed total</p>
+              )}
+              {printedTotal !== null && calculated === null && <p className="text-xs text-amber-900">Fill in missing prices to check the total.</p>}
             </div>
             <button type="submit" className={primary} disabled={Boolean(busy) || !supported || (needsRate && !quote)}>{busy === "save" ? "Saving…" : "Confirm and save"}</button>
             {Boolean(batch?.remaining.length) && <button type="button" disabled={Boolean(busy)} className="min-h-11 px-2 text-xs font-semibold text-[#31533c] underline" onClick={reviewNextReceipt}>Skip to next receipt</button>}
@@ -448,7 +454,7 @@ function ReviewLine({ line, number, currency, onUpdate, onRemove }: {
   onRemove: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [checkPrice, setCheckPrice] = useState(readAmount(line.amount) === null);
+  const checkPrice = line.checkPrice;
   const question = line.kind === "product" && line.review;
   const price = readAmount(line.amount);
   const shownPrice = price === null ? "Check price" : formatDraftAmount(line.kind === "discount" ? -price : price, currency);
@@ -457,8 +463,7 @@ function ReviewLine({ line, number, currency, onUpdate, onRemove }: {
 
   function done() {
     if (!line.name.trim() || missingAnswer || price === null) return;
-    onUpdate({ review: false });
-    setCheckPrice(false);
+    onUpdate({ review: false, checkPrice: false });
     setExpanded(false);
   }
 
@@ -474,14 +479,14 @@ function ReviewLine({ line, number, currency, onUpdate, onRemove }: {
           {line.category && <p className="break-words text-xs text-[#59685e]">{line.category}</p>}
         </div>
         <span className={"shrink-0 text-xs font-semibold tabular-nums sm:text-sm " + (price === null ? "text-amber-900" : "")}>{shownPrice}</span>
-        <button type="button" aria-expanded={expanded} aria-label={(expanded ? "Hide details for " : "Edit line ") + number}
+        <button type="button" aria-expanded={expanded || question || checkPrice} aria-label={(expanded ? "Hide extra details for line " : "Edit line ") + number}
           onClick={() => setExpanded(!expanded)} className="min-h-11 shrink-0 px-1 text-xs font-semibold text-[#31533c] underline">
           {expanded ? "Hide" : "Edit"}
         </button>
       </div>
 
       {(question || checkPrice || expanded) && (
-        <div className={"mx-2 mb-2 rounded-xl p-3 sm:mx-3 " + (question ? "bg-[#fff8e8]" : "bg-[#f4f7f1]")}>
+        <div className={"mx-2 mb-2 rounded-xl p-3 sm:mx-3 " + (question || checkPrice ? "bg-[#fff8e8]" : "bg-[#f4f7f1]")}>
           {question && <p className="mb-2 text-sm font-semibold text-[#55421f]">What is this product?</p>}
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
             {(question || expanded) && (

@@ -17,9 +17,11 @@ INLINE_PRICE = re.compile(rf"^(.+?\D)\s+{MONEY_MARK}?\s*({AMOUNT})\s*{MONEY_MARK
 DATE = re.compile(r"\b(?:(\d{4})[./-](\d{2})[./-](\d{2})|(\d{1,2})\s*[./-]\s*(\d{1,2})\s*[./-]?\s*(\d{4}))(?=\b|[0-2]\d:[0-5]\d)")
 TIME = re.compile(r"\b(?:[01]\d|2[0-3]):[0-5]\d\b")
 TOTAL = re.compile(r"^(?:summe|gesamt(?:summe|betrag)?|endbetrag|(?:grand\s+|delivery\s+)?total(?:\s+due)?|sveukupno|ukupno(?!\s+(?:u\s+kn|neto|bruto)))\b", re.I)
-DISCOUNT = re.compile(r"^(?:mengen\s*vorteil|rabatt|coupon|rabat|popust|discount|cashback|promoci|promotion|aktionsrabatt)", re.I)
+DISCOUNT = re.compile(r"^(?:mengen\s*vorteil|rabatt|coupon|rabat|popust|discount|cashback|promoci|promotion|aktionsrabatt|loyalty\b)", re.I)
 DEPOSIT = re.compile(r"^(?:pfand|deposit|povratna naknada)\b", re.I)
 QUANTITY = re.compile(rf"^(\d+(?:[.,]\d+)?)\s*([x×])?\s+({AMOUNT})$", re.I)
+WEIGHT_DETAIL = re.compile(rf"^(\d+(?:[.,]\d+)?)\s*kg\s*(?:NET\s*)?[@0O]?\s*{MONEY_MARK}?\s*({AMOUNT})\s*/\s*kg$", re.I)
+RECEIPT_METADATA = re.compile(r"^(?:table|server|cashier|time)\s*:|^date\s*(?:[:\d]|$)|^tip(?:\s+guide)?\s*:", re.I)
 COLUMN_HEADER = re.compile(r"^(?:description|item(?:s ordered|s| description)?|product(?:s| description)?|article|artikel|opis|naziv|qty|quantity|price|amount|preis|cijena|gericht|menge\s*[x×]\s*einzelpreis|stk\.?\s+bezeichnung|einzel|vkp)\s*[:.]?$", re.I)
 ORDER_SUMMARY = re.compile(r"^(?:merchandise value|net amount|subtotal|lief\.d\.dritte)\b", re.I)
 ITEM_NUMBER = re.compile(r"^(?:item\s*(?:no\.|number|#)|sku\s*[:#])", re.I)
@@ -135,7 +137,8 @@ def entry_type(name: str) -> str:
 
 def is_metadata(text: str) -> bool:
     return bool(COLUMN_HEADER.fullmatch(text) or PAYMENT.match(text)
-                or ORDER_SUMMARY.match(text) or ITEM_NUMBER.match(text) or text.upper() in CURRENCIES)
+                or ORDER_SUMMARY.match(text) or ITEM_NUMBER.match(text) or RECEIPT_METADATA.match(text)
+                or text.upper() in CURRENCIES)
 
 
 def pick_store(lines: list[Region], first_body_y: float) -> str | None:
@@ -162,6 +165,8 @@ def split_body(body: list[Region], price_column: float):
         elif inline and line.right >= price_column and not QUANTITY.fullmatch(line.text):
             names.append((line, inline[1].strip()))
             prices.append((line.y, cents(inline[2]), inline[3], line.confidence))
+        elif WEIGHT_DETAIL.fullmatch(line.text):
+            details.append(line)
         elif line.x < price_column and len(re.findall(r"[^\W\d_]", line.text)) >= 3:
             names.append((line, line.text))
         elif line.x < price_column:
@@ -223,6 +228,11 @@ def infer_quantity(details: list[Region], line: Region, next_y: float,
             rows.append([part])
     for row in rows:
         text = " ".join(part.text for part in sorted(row, key=lambda part: part.x))
+        if match := WEIGHT_DETAIL.fullmatch(text):
+            weight = Decimal(match[1].replace(",", "."))
+            unit_price = cents(match[2])
+            if weight > 0 and amount is not None and abs(weight * unit_price - amount) <= 1:
+                return float(weight), unit_price, "printed_weight"
         match = QUANTITY.fullmatch(text)
         if match:
             count = Decimal(match[1].replace(",", "."))
@@ -343,7 +353,11 @@ def apply_invoice_tax(rows: list[dict], lines: list[Region], total: int, height:
         return False
     if abs(line_sum * (1 + rate / 100) - total) > 1:
         return False
-    exact = [Decimal(row["line_total_minor"]) * (1 + rate / 100) for row in rows]
+    return allocate_tax(rows, total, 1 + rate / 100)
+
+
+def allocate_tax(rows: list[dict], total: int, multiplier: Decimal) -> bool:
+    exact = [Decimal(row["line_total_minor"]) * multiplier for row in rows]
     amounts = [int(value.to_integral_value(rounding=ROUND_FLOOR)) for value in exact]
     remainder = total - sum(amounts)
     if not 0 <= remainder <= len(rows):
@@ -520,7 +534,10 @@ def parse_receipt(payload: dict) -> dict:
     if invoice:
         return invoice
     delivery_total = next((line for line in lines if line.text.lower().startswith("delivery total")), None)
-    total_label = delivery_total or next((line for line in reversed(lines) if TOTAL.match(line.text)), None)
+    total_candidates = [line for line in lines if TOTAL.match(line.text)]
+    total_label = delivery_total or next((line for line in reversed(total_candidates)
+                                         if (amount_at(lines, line, height) or 0) > 0),
+                                        total_candidates[-1] if total_candidates else None)
     total_y = total_label.y if total_label else float("inf")
     before_total = [line for line in lines if line.y < total_y]
     first_amount_y = next((line.y for line in before_total if PRICE.fullmatch(line.text) or INLINE_PRICE.fullmatch(line.text)), total_y)
@@ -572,6 +589,8 @@ def parse_receipt(payload: dict) -> dict:
         entry = {"name": name, "line_total_minor": amount}
         if kind != "discount":
             entry.update(quantity=quantity, quantity_source=source, unit_price_minor=unit_price)
+        if source == "printed_weight":
+            entry["quantity_unit"] = "kg"
         if not match_price:
             warnings.append(f"No reliable line price for {name}.")
         elif min(line.confidence, match_price[3]) < 75:
@@ -579,7 +598,7 @@ def parse_receipt(payload: dict) -> dict:
         if source == "inferred_from_price":
             warnings.append(f"Quantity for {name} inferred from its line total and unit price.")
         if quantity is not None and unit_price is not None and amount is not None:
-            if Decimal(str(quantity)) * unit_price != amount:
+            if abs(Decimal(str(quantity)) * unit_price - amount) > (1 if source == "printed_weight" else 0):
                 warnings.append(f"Quantity and unit price do not match the line total for {name}.")
         if kind == "product":
             count = PACK_COUNT.search(name)
@@ -596,6 +615,23 @@ def parse_receipt(payload: dict) -> dict:
             items.append(entry)
         else:
             adjustments.append({"type": kind, **entry})
+
+    if summary_y < total_y:
+        summary = [line for line in lines if summary_y <= line.y < total_y]
+        for line in summary:
+            if DISCOUNT.match(line.text) and (amount := amount_at(summary, line, height)) is not None and amount < 0:
+                label = INLINE_PRICE.fullmatch(line.text)
+                adjustments.append({"type": "discount", "name": label[1] if label else line.text, "line_total_minor": amount})
+        subtotal_label = next((line for line in summary if re.match(r"^subtotal\b", line.text, re.I)), None)
+        tax_label = next((line for line in summary if re.match(r"^(?:sales\s+)?tax\b", line.text, re.I)), None)
+        if subtotal_label and tax_label and total and not adjustments and items and all(
+            (entry["line_total_minor"] or 0) > 0 for entry in items
+        ):
+            subtotal = amount_at(summary, subtotal_label, height)
+            tax = amount_at(summary, tax_label, height)
+            if subtotal and tax and subtotal + tax == total and subtotal == sum(entry["line_total_minor"] for entry in items):
+                if allocate_tax(items, total, Decimal(total) / subtotal):
+                    warnings.append("The printed sales tax was split across the item prices.")
 
     currencies = [match[0] for line in lines if line.y <= total_y + height * 1.35
                   for match in CURRENCY.finditer(line.text.upper())]

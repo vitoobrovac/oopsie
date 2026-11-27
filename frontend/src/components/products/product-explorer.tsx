@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { Icon } from "@/components/layout/icon";
 import { formatMinor, formatQuantity, formatReceiptDate } from "@/lib/finance-format";
 import { productEmoji } from "@/lib/product-icons";
@@ -43,8 +43,9 @@ export function ProductExplorer() {
   const [query, setQuery] = useState("");
   const [visibleProducts, setVisibleProducts] = useState(8);
   const [selectedKey, setSelectedKey] = useState("");
-  const terms = searchText(query).split(" ").filter(Boolean);
-  const products = groupProducts(records ?? []);
+  const searchQuery = useDeferredValue(query);
+  const terms = searchText(searchQuery).split(" ").filter(Boolean);
+  const products = useMemo(() => groupProducts(records ?? []), [records]);
   const direct = products.filter(({ terms: haystack }) => terms.every((term) => haystack.includes(term)));
   const suggestions = !direct.length && terms.length ? products.filter((group) => {
     const words = group.terms.split(" ");
@@ -78,7 +79,7 @@ export function ProductExplorer() {
           </div>
           {matches.length > visibleProducts && <button onClick={() => setVisibleProducts(visibleProducts + 8)} className="mt-3 inline-flex min-h-11 items-center rounded-xl border border-[#dce4d9] bg-white px-3 text-sm font-semibold text-[#31533c]">See more products ({matches.length - visibleProducts})</button>}
           {selected && <ProductStats key={selected.key} group={selected} />}
-          {!matches.length && <p className="mt-5 text-sm text-[#59685e]">No products match “{query}”.</p>}
+          {!matches.length && <p className="mt-5 text-sm text-[#59685e]">No products match “{searchQuery}”.</p>}
         </>}
       <div className="mt-6 border-t border-[#dce4d9] pt-4">
         <Link href="/receipts" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#eaf1e7] px-3 text-sm font-semibold text-[#31533c]">
