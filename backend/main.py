@@ -67,12 +67,33 @@ class PlanningInput(BaseModel):
 class BudgetInput(PlanningInput):
     category: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
     priority: Literal["low", "normal", "high"] | None = None
+    reset_period: Literal["weekly", "monthly", "yearly", "once"] | None = None
+    starts_on: Date | None = None
+
+    @model_validator(mode="after")
+    def validate_start(self):
+        if self.reset_period == "once" and self.starts_on is None:
+            raise ValueError("A one-time budget needs a start date.")
+        return self
 
 
 class GoalInput(PlanningInput):
     name: Text
     saved_minor: int = Field(strict=True, ge=0, le=99999999999)
     priority: Literal["low", "normal", "high"] | None = None
+
+
+class BillFundInput(GoalInput):
+    fund_cadence: Literal["weekly", "monthly"]
+    fund_amount_minor: PositiveMinor
+    fund_starts_on: Date = Field(ge=Date(1900, 1, 1), le=Date(9999, 1, 1))
+    fund_active: bool
+
+
+class FundBillInput(PlanningInput):
+    entry_id: UUID
+    description: Text
+    category: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
 
 
 class SubscriptionInput(PlanningInput):
@@ -107,11 +128,13 @@ class GoalAllocationInput(BaseModel):
     contributions: list[GoalContribution] = Field(min_length=1, max_length=100)
 
 
-Plan = Literal["budgets", "goals", "subscriptions"]
+Plan = Literal["budgets", "goals", "subscriptions", "bill-funds"]
+PLANNING_SCHEMA_MESSAGE = "Apply the latest Supabase migrations to use these planning fields."
 PLANNING = {
     "budgets": ("budgets", "id,category,amount_minor", BudgetInput),
     "goals": ("savings_goals", "id,name,amount_minor,saved_minor", GoalInput),
     "subscriptions": ("subscriptions", "id,name,amount_minor,starts_on,cadence,active,next_due", SubscriptionInput),
+    "bill-funds": ("savings_goals", "id,name,amount_minor,saved_minor,priority,fund_cadence,fund_amount_minor,fund_starts_on,fund_next_due,fund_active", BillFundInput),
 }
 
 
@@ -234,7 +257,7 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
         except (ValueError, AttributeError):
             code = None
         if path in {"budgets", "savings_goals"} and code in {"42703", "PGRST204"}:
-            raise HTTPException(503, "Budget and goal priorities need migration 015 in Supabase.")
+            raise HTTPException(503, PLANNING_SCHEMA_MESSAGE)
         if code in {"PGRST202", "PGRST205", "42P01"}:
             if allow_missing:
                 return None
@@ -250,6 +273,8 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
                 raise HTTPException(503, "Recurring income needs migration 013 in Supabase.")
             if path in {"goal_allocations", "rpc/allocate_to_goals"}:
                 raise HTTPException(503, "Goal savings need migration 015 in Supabase.")
+            if path == "rpc/record_fund_bill":
+                raise HTTPException(503, "Bill funds need migration 017 in Supabase.")
             raise HTTPException(503, "Receipt tables are missing. Apply the receipt migration in Supabase.")
         if code == "23514" and path == "subscriptions" and kwargs.get("json", {}).get("cadence") in {"yearly", "yearly_split"}:
             raise HTTPException(503, "Apply migration 004 in Supabase to enable yearly subscriptions.")
@@ -263,15 +288,21 @@ async def request(client: httpx.AsyncClient, method: str, path: str, *, allow_mi
             raise HTTPException(409, "A budget already exists for this category.")
         if code == "22023" and path == "rpc/allocate_to_goals":
             raise HTTPException(409, "The available balance or goal amounts changed. Check your plan and try again.")
+        if code == "22023" and path == "rpc/record_fund_bill":
+            raise HTTPException(409, "This fund is no longer available or has no money left to use.")
         raise HTTPException(502, "The database could not complete this request.")
     return response.json() if response.content else None
 
 
+async def sync_ledger_schedules(client: httpx.AsyncClient):
+    if await request(client, "POST", "rpc/sync_my_ledger_schedules", json={}, allow_missing=True) is None:
+        await asyncio.gather(
+            request(client, "POST", "rpc/sync_my_subscriptions", json={}, allow_missing=True),
+            request(client, "POST", "rpc/sync_my_recurring_income", json={}, allow_missing=True),
+        )
+
+
 async def ledger_entries(client: httpx.AsyncClient):
-    await asyncio.gather(
-        request(client, "POST", "rpc/sync_my_subscriptions", json={}, allow_missing=True),
-        request(client, "POST", "rpc/sync_my_recurring_income", json={}, allow_missing=True),
-    )
     entries = []
     while True:
         page = await request(client, "GET", "ledger_entries", params={
@@ -322,6 +353,7 @@ async def join_current_hunt(join: HuntJoin, client: Database):
 
 @app.get("/v1/ledger")
 async def list_ledger(client: Database):
+    await sync_ledger_schedules(client)
     entries, preferences, allocations = await asyncio.gather(
         ledger_entries(client),
         request(client, "GET", "ledger_preferences", params={"select": "monthStartDay"}),
@@ -350,6 +382,15 @@ async def list_goal_allocations(client: httpx.AsyncClient):
 @app.post("/v1/goals/allocate", status_code=204)
 async def allocate_goals(allocation: GoalAllocationInput, client: Database):
     await request(client, "POST", "rpc/allocate_to_goals", json=allocation.model_dump(mode="json"))
+    return Response(status_code=204)
+
+
+@app.post("/v1/bill-funds/{fund_id}/record-bill", status_code=204)
+async def record_fund_bill(fund_id: UUID, bill: FundBillInput, client: Database):
+    await request(client, "POST", "rpc/record_fund_bill", json={
+        "fund_id": str(fund_id), "entry_id": str(bill.entry_id), "bill_amount": bill.amount_minor,
+        "description": bill.description, "expense_category": bill.category,
+    })
     return Response(status_code=204)
 
 
@@ -409,20 +450,34 @@ async def list_planning(plan: Plan, client: Database):
     table, fields, _ = PLANNING[plan]
     if plan == "subscriptions":
         await request(client, "POST", "rpc/sync_my_subscriptions", json={})
+    elif plan == "bill-funds":
+        await sync_ledger_schedules(client)
     rows = []
-    select = fields if plan == "subscriptions" else fields + ",priority"
+    selections = iter(planning_selections(plan, fields))
+    select = next(selections)
     while True:
         params = {"select": select, "order": "id.asc", "limit": PAGE_SIZE, "offset": len(rows)}
+        if plan == "bill-funds":
+            params["fund_cadence"] = "not.is.null"
         try:
             page = await request(client, "GET", table, params=params)
         except HTTPException as error:
-            if select == fields or error.detail != "Budget and goal priorities need migration 015 in Supabase.":
+            fallback = next(selections, None)
+            if fallback is None or error.detail != PLANNING_SCHEMA_MESSAGE:
                 raise
-            select = fields
+            select = fallback
             continue
         rows.extend(page)
         if len(page) < PAGE_SIZE:
             return rows
+
+
+def planning_selections(plan: Plan, fields: str, *, reading=True):
+    if plan == "budgets":
+        return (fields + ",priority,reset_period,starts_on", fields + ",priority", fields)
+    if plan == "goals":
+        return (fields + ",priority,fund_cadence", fields + ",priority", fields) if reading else (fields + ",priority", fields)
+    return (fields,)
 
 
 async def write_plan(plan: Plan, payload: dict, client: Database, entry_id: UUID | None = None):
@@ -433,19 +488,29 @@ async def write_plan(plan: Plan, payload: dict, client: Database, entry_id: UUID
         raise HTTPException(422, "Check the planning fields and try again.") from exc
     if plan == "subscriptions" and entry_id is not None:
         await request(client, "POST", "rpc/sync_my_subscriptions", json={})
-    params = {"select": fields if plan == "subscriptions" else fields + ",priority"}
+    params = {}
     if entry_id is not None:
         params["id"] = f"eq.{entry_id}"
+        if plan == "bill-funds":
+            params["fund_cadence"] = "not.is.null"
     method = "POST" if entry_id is None else "PATCH"
     data = value.model_dump(mode="json", exclude_none=True)
     headers = {"Prefer": "return=representation"}
-    try:
-        rows = await request(client, method, table, params=params, json=data, headers=headers)
-    except HTTPException as error:
-        if params["select"] == fields or data.get("priority") not in {None, "normal"} or error.detail != "Budget and goal priorities need migration 015 in Supabase.":
-            raise
-        data.pop("priority", None)
-        rows = await request(client, method, table, params={**params, "select": fields}, json=data, headers=headers)
+    for select in planning_selections(plan, fields, reading=False):
+        try:
+            rows = await request(client, method, table, params={**params, "select": select}, json=data, headers=headers)
+            break
+        except HTTPException as error:
+            if error.detail != PLANNING_SCHEMA_MESSAGE or select == fields:
+                raise
+            if "reset_period" in select:
+                if data.get("reset_period") not in {None, "monthly"} or data.get("starts_on") is not None:
+                    raise
+                data.pop("reset_period", None)
+            elif data.get("priority") in {None, "normal"}:
+                data.pop("priority", None)
+            else:
+                raise
     if not rows:
         raise HTTPException(404, "This record no longer exists.")
     return rows[0]
@@ -466,7 +531,10 @@ async def delete_plan(plan: Plan, entry_id: UUID, client: Database):
     table, _, _ = PLANNING[plan]
     if plan == "subscriptions":
         await request(client, "POST", "rpc/sync_my_subscriptions", json={})
-    await request(client, "DELETE", table, params={"id": f"eq.{entry_id}"})
+    params = {"id": f"eq.{entry_id}"}
+    if plan == "bill-funds":
+        params["fund_cadence"] = "not.is.null"
+    await request(client, "DELETE", table, params=params)
     return Response(status_code=204)
 
 

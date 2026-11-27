@@ -5,30 +5,27 @@ import { GoalSavingsDialog } from "./goal-savings-dialog";
 import { Toast } from "@/components/layout/toast";
 import { formatMinor, monthLabel } from "@/lib/finance-format";
 import type { GoalAllocation, SavingsPeriod } from "@/lib/goal-savings";
-import { useLocalPlanning } from "@/lib/local-planning";
-import type { ManualEntry } from "@/lib/ledger";
+import { weekBounds, type ManualEntry } from "@/lib/ledger";
 
-const ranges = ["Week", "Month", "Year"] as const;
-type Range = typeof ranges[number];
+const ranges = ["week", "month", "year"] as const;
 const day = 86_400_000;
 const shortDate = new Intl.DateTimeFormat("en-IE", { month: "short", day: "numeric", timeZone: "UTC" });
 const weekday = new Intl.DateTimeFormat("en-IE", { weekday: "short", timeZone: "UTC" });
 const series = { spending: "#173b68", income: "#397bb3", left: "#13745c" } as const;
 
-function makePoints(rows: ManualEntry[], today: string, periodStart: string, nextPeriodStart: string, range: Range, weekStartDay: number, allocations: GoalAllocation[]) {
+function makePoints(rows: ManualEntry[], today: string, periodStart: string, nextPeriodStart: string, range: SavingsPeriod, weekStartDay: number, allocations: GoalAllocation[]) {
   const through = Date.parse(today);
-  const daysSinceWeekStart = (new Date(through).getUTCDay() + 7 - weekStartDay) % 7;
-  const start = range === "Week" ? through - daysSinceWeekStart * day
-    : Date.parse(range === "Month" ? periodStart : today.slice(0, 4) + "-01-01");
-  const end = range === "Week" ? start + 7 * day : range === "Month" ? Date.parse(nextPeriodStart)
+  const week = weekBounds(today, weekStartDay);
+  const start = Date.parse(range === "week" ? week.start : range === "month" ? periodStart : today.slice(0, 4) + "-01-01");
+  const end = range === "week" ? Date.parse(week.nextStart) : range === "month" ? Date.parse(nextPeriodStart)
     : Date.UTC(Number(today.slice(0, 4)) + 1, 0, 1);
   const buckets = new Map<string, { label: string; description: string; spending: number; income: number; savings: number; upcoming: boolean }>();
-  const key = (date: number) => new Date(date).toISOString().slice(0, range === "Year" ? 7 : 10);
+  const key = (date: number) => new Date(date).toISOString().slice(0, range === "year" ? 7 : 10);
   for (let date = start; date < end; date += day) {
     const bucket = key(date);
     if (buckets.has(bucket)) continue;
-    const label = range === "Year" ? monthLabel(bucket, "short") : range === "Week" ? weekday.format(date) : shortDate.format(date);
-    const description = range === "Year" ? monthLabel(bucket) : shortDate.format(date);
+    const label = range === "year" ? monthLabel(bucket, "short") : range === "week" ? weekday.format(date) : shortDate.format(date);
+    const description = range === "year" ? monthLabel(bucket) : shortDate.format(date);
     buckets.set(bucket, { label, description, spending: 0, income: 0, savings: 0, upcoming: date > through });
   }
   for (const allocation of allocations) {
@@ -54,10 +51,10 @@ function makePoints(rows: ManualEntry[], today: string, periodStart: string, nex
   return { points, dates: shortDate.format(start) + " – " + shortDate.format(end - day) };
 }
 
-export function CashFlowChart({ rows, today, periodStart, nextPeriodStart, weekStartDay, allocations }: {
+export function CashFlowChart({ rows, today, periodStart, nextPeriodStart, weekStartDay, allocations, range, onRangeChange }: {
   rows: ManualEntry[]; today: string; periodStart: string; nextPeriodStart: string; weekStartDay: number; allocations?: GoalAllocation[];
+  range: SavingsPeriod; onRangeChange: (range: SavingsPeriod) => void;
 }) {
-  const [range, setRange] = useState<Range>("Week");
   const [selected, setSelected] = useState<number | null>(null);
   const [savingsOpen, setSavingsOpen] = useState(false);
   const [notice, setNotice] = useState("");
@@ -68,12 +65,11 @@ export function CashFlowChart({ rows, today, periodStart, nextPeriodStart, weekS
   const scale = peak || low ? Math.max(1, 10 ** Math.floor(Math.log10((peak - low) / 2))) : 1000;
   const top = Math.ceil(peak / scale) * scale || scale;
   const bottom = Math.floor(low / scale) * scale;
-  const period = range.toLowerCase() as SavingsPeriod;
-  const leftLabel = "Left this " + period;
+  const leftLabel = "Left this " + range;
   const ticks = [top, bottom < 0 ? 0 : Math.round(top / 2), bottom];
   const x = (index: number) => points.length === 1 ? 50 : 100 * index / (points.length - 1);
   const y = (amount: number) => 96 - 92 * (amount - bottom) / (top - bottom);
-  const activeIndex = selected ?? elapsed.length - 1;
+  const activeIndex = selected !== null && selected < points.length ? selected : elapsed.length - 1;
   const active = points[activeIndex];
   const balance = elapsed.at(-1)?.left ?? 0;
 
@@ -82,12 +78,12 @@ export function CashFlowChart({ rows, today, periodStart, nextPeriodStart, weekS
       <div className="flex flex-wrap items-center justify-between gap-2">
         <figcaption className="font-semibold text-[#112d52]">
           Spending &amp; income
-          <span className="block text-[11px] font-medium text-[#385777]">This {range.toLowerCase()} · {dates}</span>
+          <span className="block text-[11px] font-medium text-[#385777]">This {range} · {dates}</span>
         </figcaption>
         <div className="flex rounded-xl bg-[#eef3f9] p-0.5" role="group" aria-label="Cash flow period">
           {ranges.map((option) => (
-            <button key={option} aria-pressed={range === option} className="min-h-9 rounded-lg px-2.5 text-xs font-semibold text-[#385777] aria-pressed:bg-[#14365d] aria-pressed:text-white"
-              onClick={() => { setRange(option); setSelected(null); }}>{option}</button>
+            <button key={option} aria-pressed={range === option} className="min-h-9 rounded-lg px-2.5 text-xs font-semibold capitalize text-[#385777] aria-pressed:bg-[#14365d] aria-pressed:text-white"
+              onClick={() => { onRangeChange(option); setSelected(null); }}>{option[0].toUpperCase() + option.slice(1)}</button>
           ))}
         </div>
       </div>
@@ -102,7 +98,7 @@ export function CashFlowChart({ rows, today, periodStart, nextPeriodStart, weekS
         <p className="font-semibold tabular-nums text-[#13745c]"><span aria-hidden>● </span>{leftLabel} {formatMinor(balance)}
           {!active.upcoming && active.left !== balance && <span className="ml-2 font-normal text-[#385777]">{active.description} · {formatMinor(active.left)}</span>}
         </p>
-        {!useLocalPlanning && allocations && balance > 0 && <button type="button" onClick={() => setSavingsOpen(true)}
+        {balance > 0 && <button type="button" onClick={() => setSavingsOpen(true)}
           className="min-h-10 rounded-lg bg-[#edf4ed] px-2.5 font-semibold text-[#1e5945]">Put into goal savings</button>}
       </div>
       <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-2">
@@ -135,13 +131,13 @@ export function CashFlowChart({ rows, today, periodStart, nextPeriodStart, weekS
         </div>
         <div aria-hidden className="relative col-start-2 mx-2 mt-1 h-4 text-[10px] text-[#385777]">
           {points.map(({ label }, index) => {
-            const tick = range !== "Month" || (index < points.length - 3 && index % 7 === 0) || index === points.length - 1;
+            const tick = range !== "month" || (index < points.length - 3 && index % 7 === 0) || index === points.length - 1;
             return tick && <span key={index} style={{ left: x(index) + "%" }}
               className="absolute -translate-x-1/2 whitespace-nowrap">{label}</span>;
           })}
         </div>
       </div>
-      {savingsOpen && allocations && <GoalSavingsDialog balance={balance} period={period} allocations={allocations}
+      {savingsOpen && <GoalSavingsDialog balance={balance} period={range} allocations={allocations}
         onClose={() => setSavingsOpen(false)} onSaved={(amount) => { setSavingsOpen(false); setNotice(formatMinor(amount) + " recorded in goal savings."); }} />}
       {notice && <Toast dismiss={() => setNotice("")}>{notice}</Toast>}
     </figure>

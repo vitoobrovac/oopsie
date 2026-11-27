@@ -2,7 +2,7 @@
 
 import { createClient, type Session } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import type { ManualEntry } from "@/lib/ledger";
+import type { ManualEntry, OverviewPeriod } from "@/lib/ledger";
 import type { GoalAllocation } from "@/lib/goal-savings";
 import type { Receipt } from "@/lib/receipts";
 import { deleteLocalSubscriptionEntry, localPlanningKey, localSubscriptionEntries, useLocalPlanning } from "@/lib/local-planning";
@@ -23,6 +23,8 @@ type Account = {
   changeDisplayName: (name: string) => Promise<void>;
   weekStartDay: number;
   changeWeekStartDay: (day: number) => Promise<void>;
+  overviewPeriod: OverviewPeriod;
+  changeOverviewPeriod: (period: OverviewPeriod) => Promise<void>;
   remote: RemoteState | null;
   previewEntries: ManualEntry[];
   retry: () => void;
@@ -215,6 +217,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         if (!session || !supabase) throw new Error("Sign in to update your reporting preferences.");
         if (!isWeekday(day)) throw new Error("Choose a day of the week.");
         const { error } = await supabase.auth.updateUser({ data: { week_start_day: day } });
+        if (error) throw error;
+      },
+      overviewPeriod: session?.user.user_metadata?.overview_period === "week" ? "week" : "month",
+      changeOverviewPeriod: async (period) => {
+        if (!session || !supabase) throw new Error("Sign in to update your Overview.");
+        const { error } = await supabase.auth.updateUser({ data: { overview_period: period } });
         if (error) throw error;
       },
       previewEntries: preview && preview.owner === owner ? preview.entries : noPreviewEntries,

@@ -1,6 +1,8 @@
 import { formatMinor, formatReceiptDate } from "./finance-format";
 import type { GoalAllocation } from "./goal-savings";
 
+export type OverviewPeriod = "week" | "month";
+
 export const subscriptionCategory = "Subscriptions";
 export const yearlyExpenseCategory = "Yearly expenses";
 
@@ -46,6 +48,22 @@ export function periodStart(date: string, day: number) {
   return date >= start ? start : monthStart(date, day, -1);
 }
 
+function shiftDays(date: string, days: number) {
+  const shifted = new Date(date);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
+export function weekBounds(date: string, firstDay: number) {
+  const sinceStart = (new Date(date).getUTCDay() + 7 - firstDay) % 7;
+  const start = shiftDays(date, -sinceStart);
+  return { start, previousStart: shiftDays(start, -7), nextStart: shiftDays(start, 7) };
+}
+
+function dateRange(from: string, until: string) {
+  return formatReceiptDate(from) + " – " + formatReceiptDate(shiftDays(until, -1));
+}
+
 function summarize(rows: ManualEntry[]) {
   const spent = rows.reduce((sum, row) => sum + Math.max(-row.amountMinor, 0), 0);
   const income = rows.reduce((sum, row) => sum + Math.max(row.amountMinor, 0), 0);
@@ -70,27 +88,31 @@ export function ledgerReport(entries: ManualEntry[], day: number, today: string,
   const labels = [monthStart(start, day, -2), previousStart, start];
   const getPeriod = (period: string) => summarize(grouped.get(period) ?? []);
   const current = getPeriod(start);
-  const previous = getPeriod(previousStart);
-  const earmarked = allocations.reduce((sum, allocation) =>
-    allocation.allocated_on >= start && allocation.allocated_on <= today ? sum + allocation.amount_minor : sum, 0);
-  const left = current.net - earmarked;
-  const range = (from: string, until: string) => {
-    const end = new Date(until);
-    end.setUTCDate(end.getUTCDate() - 1);
-    return formatReceiptDate(from) + " – " + formatReceiptDate(end.toISOString());
-  };
 
   return {
-    rows, start, nextStart, current, left,
-    range: range(start, nextStart),
+    rows, start, nextStart, current,
+    range: dateRange(start, nextStart),
     chart: labels.map((date) => ({ start: date, month: date.slice(0, 7), ...getPeriod(date) })),
-    cards: [
-      { id: "overall", title: "Overall spent", value: formatMinor(summarize(rows).spent), note: "All recorded activity" },
-      { id: "current", title: "Spent this period", value: formatMinor(current.spent), note: "Through " + formatReceiptDate(today) },
-      { id: "previous", title: "Spent last period", value: formatMinor(previous.spent), note: range(previousStart, start) },
-      { id: "income", title: "Income this period", value: formatMinor(current.income), note: "Recorded income" },
-      { id: "balance", title: "Left this month", value: formatMinor(left), note: "Income after spending and goal savings" },
-    ] as const,
+    overview(period: OverviewPeriod, weekStartDay: number) {
+      const bounds = period === "week" ? weekBounds(today, weekStartDay) : { start, previousStart, nextStart };
+      const currentTotals = period === "week" ? summarize(rows.filter((entry) => entry.date >= bounds.start)) : current;
+      const previousTotals = period === "week"
+        ? summarize(rows.filter((entry) => entry.date >= bounds.previousStart && entry.date < bounds.start))
+        : getPeriod(previousStart);
+      const saved = allocations.reduce((sum, allocation) =>
+        allocation.allocated_on >= bounds.start && allocation.allocated_on <= today ? sum + allocation.amount_minor : sum, 0);
+      const left = currentTotals.net - saved;
+      return {
+        range: dateRange(bounds.start, bounds.nextStart), left,
+        cards: [
+          { id: "overall", title: "Overall spent", value: formatMinor(summarize(rows).spent), note: "All recorded activity" },
+          { id: "current", title: "Spent this " + period, value: formatMinor(currentTotals.spent), note: "Through " + formatReceiptDate(today) },
+          { id: "previous", title: "Spent last " + period, value: formatMinor(previousTotals.spent), note: dateRange(bounds.previousStart, bounds.start) },
+          { id: "income", title: "Income this " + period, value: formatMinor(currentTotals.income), note: "Recorded income" },
+          { id: "balance", title: "Left this " + period, value: formatMinor(left), note: "Income after spending and goal savings" },
+        ] as const,
+      };
+    },
     categories(period = start) {
       const totals = new Map<string, number>();
       for (const row of grouped.get(period) ?? []) {

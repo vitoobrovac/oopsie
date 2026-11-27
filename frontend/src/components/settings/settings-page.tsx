@@ -7,6 +7,7 @@ import { saveMotionPreference, useReducedMotionPreference } from "@/lib/motion-p
 import { HuntProfileSetting } from "./hunt-profile-setting";
 import { AccountReset } from "./account-reset";
 import { useLedger } from "@/lib/use-ledger";
+import type { OverviewPeriod } from "@/lib/ledger";
 
 const field = "mt-2 min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 py-2 text-base";
 const saveButton = "mt-3 min-h-11 rounded-xl bg-[#183c31] px-4 text-sm font-semibold text-white disabled:opacity-50";
@@ -24,6 +25,7 @@ export function SettingsPage() {
       </header>
       <ProfileSetting key={session?.user.id} />
       <HuntProfileSetting />
+      <OverviewPeriodSetting key={session?.user.id} />
       <MonthStartSetting />
       <WeekStartSetting key={session?.user.id} />
       <MotionSetting />
@@ -123,6 +125,47 @@ function MonthStartSetting() {
         <p className="mt-1 text-xs text-[#59685e]">Choose your payday or any other day for budgets and monthly reports.</p>
         <p className="mt-2 text-xs font-medium text-[#31533c]">Current period · {report.range}</p>
         <button className={saveButton} disabled={!canWrite || pending || day === monthStartDay}>{pending ? "Saving…" : "Save reporting period"}</button>
+        <Status message={message} />
+      </form>
+    </Group>
+  );
+}
+
+function OverviewPeriodSetting() {
+  const { overviewPeriod, changeOverviewPeriod } = useAccount();
+  const [draft, setDraft] = useState<OverviewPeriod | null>(null);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<SaveStatus | null>(null);
+  const period = draft ?? overviewPeriod;
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending || period === overviewPeriod) return;
+    setPending(true);
+    setMessage(null);
+    try {
+      await changeOverviewPeriod(period);
+      setDraft(null);
+      setMessage({ text: "Overview default saved." });
+    } catch {
+      setMessage({ text: "Could not save your Overview default. Try again.", error: true });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Group title="Overview">
+      <form onSubmit={save}>
+        <label className="block text-sm font-medium">Default period
+          <select className={field} disabled={pending} value={period}
+            onChange={(event) => { setDraft(event.target.value as OverviewPeriod); setMessage(null); }}>
+            <option value="month">Month</option>
+            <option value="week">Week</option>
+          </select>
+        </label>
+        <p className="mt-1 text-xs text-[#59685e]">Sets which summary and chart open when you visit Overview.</p>
+        <button className={saveButton} disabled={pending || period === overviewPeriod}>{pending ? "Saving…" : "Save Overview default"}</button>
         <Status message={message} />
       </form>
     </Group>

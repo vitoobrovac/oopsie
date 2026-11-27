@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { AboutOopsie } from "@/components/dashboard/about-oopsie";
+import { BudgetNotices } from "@/components/dashboard/budget-notices";
 import { useAccount } from "@/components/account/account-provider";
 import { Toast } from "@/components/layout/toast";
 import { AddTransactionButton } from "@/components/features/add-transaction";
@@ -12,6 +13,8 @@ import { Icon, type IconName } from "@/components/layout/icon";
 import { CashFlowChart } from "@/components/dashboard/cash-flow-chart";
 import { CategoryChart } from "@/components/dashboard/finance-charts";
 import { formatMinor, formatReceiptDate, monthLabel } from "@/lib/finance-format";
+import type { SavingsPeriod } from "@/lib/goal-savings";
+import type { OverviewPeriod } from "@/lib/ledger";
 
 const cardStyles = {
   overall: { icon: "pie", surface: "border-[#dce6f2] bg-[#edf4fc] text-[#173752]", badge: "bg-[#dbe8f7] text-[#24486b]" },
@@ -24,17 +27,26 @@ const cardStyles = {
 const negativeBalance = { surface: "border-[#762f3c] bg-[#762f3c] text-white", badge: "bg-white/15 text-[#ffdce3]" };
 
 export function Dashboard() {
+  const { overviewPeriod } = useAccount();
+  return <DashboardContent key={overviewPeriod} defaultPeriod={overviewPeriod} />;
+}
+
+function DashboardContent({ defaultPeriod }: { defaultPeriod: OverviewPeriod }) {
   const { report } = useLedger();
   const { displayName, weekStartDay, remote } = useAccount();
+  const [summaryPeriod, setSummaryPeriod] = useState(defaultPeriod);
+  const [chartPeriod, setChartPeriod] = useState<SavingsPeriod>(defaultPeriod);
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState("");
   const categoryPeriod = report.chart.find((period) => period.start === selectedPeriod)?.start ?? report.start;
+  const summary = report.overview(summaryPeriod, weekStartDay);
+  const today = localToday();
 
   return (
     <div className="mx-auto max-w-7xl space-y-3 sm:space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-xs text-[#59685e]">{report.range}</p>
+          <p className="text-xs text-[#59685e]">{summary.range}</p>
           <h1 className="mt-1 text-2xl sm:text-3xl font-semibold tracking-tight">Overview</h1>
           {displayName && <p className="mt-1 break-words text-sm text-[#59685e]">Hi, {displayName}</p>}
         </div>
@@ -46,9 +58,9 @@ export function Dashboard() {
       </header>
 
       <section className="grid grid-cols-6 gap-2 sm:grid-cols-5 sm:gap-3" aria-label="Spending summary">
-        {report.cards.map((card) => {
+        {summary.cards.map((card) => {
           const { icon, surface, badge } = cardStyles[card.id];
-          const colors = card.id === "balance" && report.left < 0 ? negativeBalance : { surface, badge };
+          const colors = card.id === "balance" && summary.left < 0 ? negativeBalance : { surface, badge };
           const columns = card.id === "income" || card.id === "balance" ? "col-span-3" : "col-span-2";
           return (
             <div key={card.id} className={columns + " min-w-0 rounded-2xl border p-2.5 sm:col-span-1 sm:p-3 lg:p-4 " + colors.surface}>
@@ -63,13 +75,19 @@ export function Dashboard() {
         })}
       </section>
 
+      <BudgetNotices rows={report.rows} today={today} monthStart={report.start} weekStartDay={weekStartDay} />
+
       <section className="grid gap-4 xl:grid-cols-2">
-        <CashFlowChart rows={report.rows} today={localToday()} periodStart={report.start} nextPeriodStart={report.nextStart}
-          weekStartDay={weekStartDay} allocations={remote?.data?.goalAllocations} />
+        <CashFlowChart rows={report.rows} today={today} periodStart={report.start} nextPeriodStart={report.nextStart}
+          weekStartDay={weekStartDay} allocations={remote?.data?.goalAllocations} range={chartPeriod}
+          onRangeChange={(period) => {
+            setChartPeriod(period);
+            if (period !== "year") setSummaryPeriod(period);
+          }} />
         <div className="grid content-start gap-2">
           <CategoryChart categories={report.categories(categoryPeriod)} period={"From " + formatReceiptDate(categoryPeriod)} />
           <label className="flex items-center justify-end gap-2 text-xs text-[#59685e]">
-            Category period
+            Category month
             <select value={categoryPeriod} onChange={(event) => setSelectedPeriod(event.target.value)} className="min-h-11 rounded-xl border border-[#e4e9e2] bg-white px-3 text-sm">
               {report.chart.map(({ month, start }) => <option key={start} value={start}>{monthLabel(month)}</option>)}
             </select>

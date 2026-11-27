@@ -3,8 +3,9 @@ import { subscriptionCategory, yearlyExpenseCategory, type ManualEntry } from ".
 export type Plan = "budgets" | "goals" | "subscriptions";
 export type Priority = "low" | "normal" | "high";
 export const priorityWeight = { low: 1, normal: 2, high: 3 } satisfies Record<Priority, number>;
-export type Budget = { id: string; category: string; amount_minor: number; priority?: Priority };
-export type Goal = { id: string; name: string; amount_minor: number; saved_minor: number; priority?: Priority };
+export type BudgetReset = "weekly" | "monthly" | "yearly" | "once";
+export type Budget = { id: string; category: string; amount_minor: number; priority?: Priority; reset_period?: BudgetReset; starts_on?: string | null };
+export type Goal = { id: string; name: string; amount_minor: number; saved_minor: number; priority?: Priority; fund_cadence?: "weekly" | "monthly" | null };
 export type Cadence = "weekly" | "monthly" | "yearly" | "yearly_split";
 export type Subscription = { id: string; name: string; amount_minor: number; starts_on: string; next_due: string; cadence: Cadence; active: boolean };
 export type PlanItem = Budget | Goal | Subscription;
@@ -105,7 +106,7 @@ export function saveLocalPlan(owner: string, plan: Plan, payload: object, entryI
         throw new Error("A budget already exists for this category.");
       }
     }
-    if ("starts_on" in saved) {
+    if ("cadence" in saved) {
       const previous = data.subscriptions.find((item) => item.id === id);
       const reset = !previous || previous.starts_on !== saved.starts_on || previous.cadence !== saved.cadence || (saved.active && !previous.active);
       saved = { ...saved, next_due: reset ? nextDue(saved.starts_on, saved.cadence, today) : previous.next_due };

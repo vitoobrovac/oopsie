@@ -120,9 +120,15 @@ select cron.schedule(
 
 ## Enable recurring income, goal savings, and account reset
 
-Apply `013_recurring_income.sql`, `014_account_reset.sql`, and `015_goal_savings.sql` from the Supabase migrations folder in that order. Recurring income uses the signed-in user's ledger and catches up due payments when the ledger is loaded. Stopping a schedule preserves income already recorded.
+Apply migrations `013` through `017` from the Supabase migrations folder in order. Recurring income uses the signed-in user's ledger and catches up due payments when the ledger is loaded. Stopping a schedule preserves income already recorded.
 
 The Overview's **Put into goal savings** action appears when the selected week, month, or year has a positive available balance. Allocations reduce what is available and add to goal progress without changing income or spending totals. The split uses goal priority and remaining target, and caps each contribution at the amount the goal still needs. The user moves any real money separately.
+
+Under **Settings → Overview**, each account can choose whether its summary and chart open on Month or Week. Month is the default. Chart buttons change the current visit only. Migration `016` clears the saved period when an account reset completes.
+
+Migration `017` adds **Bill funds** and budget reset options. Create a Bill fund under the four-square menu or from Budgets and Goals. Weekly contributions use the reporting week, and monthly contributions use the configured reporting month. Oopsie sets aside the scheduled amount when the ledger loads and there’s enough available. Missed contributions do not accumulate. When you pay the bill, use **Record bill** to log the expense and draw down the amount set aside. Oopsie only tracks these amounts.
+
+Weekly budgets follow the first day of the week in Settings. Monthly budgets follow the configured reporting month, yearly budgets use the calendar year, and one-time budgets count spending from their chosen start date. Overview flags budgets when spending reaches 80% of the limit.
 
 To enable reset email in the hosted app:
 

@@ -115,7 +115,7 @@ class LedgerApiTest(unittest.TestCase):
             calls.append(request)
             self.assertEqual(request.headers["authorization"], "Bearer test-user")
             self.assertEqual(request.headers["apikey"], "test-project")
-            if request.url.path.endswith(("sync_my_subscriptions", "sync_my_recurring_income")):
+            if request.url.path.endswith(("sync_my_subscriptions", "sync_my_recurring_income", "sync_my_ledger_schedules")):
                 return httpx.Response(404, json={"code": "PGRST202"})
             if request.url.path.endswith("goal_allocations"):
                 return httpx.Response(404, json={"code": "PGRST205"})
@@ -143,7 +143,28 @@ class LedgerApiTest(unittest.TestCase):
             self.assertEqual(client.post("/v1/transactions", json=ENTRY).json()["id"], ENTRY_ID)
             self.assertEqual(client.put("/v1/preferences", json={"monthStartDay": 26}).status_code, 200)
             self.assertEqual(client.delete(f"/v1/transactions/{ENTRY_ID}").status_code, 204)
-            self.assertEqual(len(calls), 8)
+            self.assertEqual(len(calls), 9)
+
+    def test_fund_bill_uses_session_and_validates_positive_amount(self):
+        original_client = httpx.AsyncClient
+        payload = {"entry_id": ENTRY_ID, "description": "Car registration", "category": "Transport", "amount_minor": 8500}
+
+        def database(request):
+            self.assertEqual(request.headers["authorization"], "Bearer test-user")
+            self.assertTrue(request.url.path.endswith("/rpc/record_fund_bill"))
+            self.assertEqual(json.loads(request.content), {
+                "fund_id": ENTRY_ID, "entry_id": ENTRY_ID, "description": "Car registration",
+                "expense_category": "Transport", "bill_amount": 8500,
+            })
+            return httpx.Response(204)
+
+        env = {"SUPABASE_URL": "https://project.example", "SUPABASE_PUBLISHABLE_KEY": "test-project"}
+        with patch.dict(os.environ, env), patch("main.httpx.AsyncClient", side_effect=lambda **kw: original_client(
+            **kw, transport=httpx.MockTransport(database)
+        )), TestClient(app, headers={"Authorization": "Bearer test-user"}) as client:
+            path = f"/v1/bill-funds/{ENTRY_ID}/record-bill"
+            self.assertEqual(client.post(path, json={**payload, "amount_minor": 0}).status_code, 422)
+            self.assertEqual(client.post(path, json=payload).status_code, 204)
 
     def test_goal_allocation_uses_owner_session_and_reports_changed_balance(self):
         original_client = httpx.AsyncClient

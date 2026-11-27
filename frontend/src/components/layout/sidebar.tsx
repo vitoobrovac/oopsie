@@ -42,6 +42,7 @@ const morePages: { href: string; label: string; description: string; icon: IconN
   { href: "/goals", label: "Goals", description: "Track what you’re saving for", icon: "target" },
   { href: "/products", label: "Products", description: "Search what you bought", icon: "search" },
   { href: "/subscriptions", label: "Subscriptions", description: "Track recurring expenses", icon: "refresh" },
+  { href: "/bill-funds", label: "Bill funds", description: "Set money aside for future bills", icon: "wallet" },
   { href: "/settings", label: "Settings", description: "Profile, reporting period and motion", icon: "settings" },
 ];
 

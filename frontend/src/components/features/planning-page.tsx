@@ -11,15 +11,16 @@ import { formatMinor, formatReceiptDate } from "@/lib/finance-format";
 import { expenseCategories, isDate, parseAmount, yearlyExpenseCategory } from "@/lib/ledger";
 import { localToday, useLedger } from "@/lib/use-ledger";
 import { amountsByGoal } from "@/lib/goal-savings";
+import { budgetResetLabels, budgetUsage } from "@/lib/budgets";
 
-import { deleteLocalPlan, isYearlyCadence, listLocalPlans, priorityWeight, saveLocalPlan, scheduledPayment, useLocalPlanning, type Budget, type Cadence, type Plan, type PlanItem as Item } from "@/lib/local-planning";
+import { deleteLocalPlan, isYearlyCadence, listLocalPlans, priorityWeight, saveLocalPlan, scheduledPayment, useLocalPlanning, type Budget, type BudgetReset, type Cadence, type Plan, type PlanItem as Item } from "@/lib/local-planning";
 
 type Editor = { item?: Item; remove?: boolean };
 
 const pages = {
   budgets: {
     title: "Budgets", item: "budget", action: "Add budget",
-    description: "Set category limits for each reporting month.",
+    description: "Set category limits and choose when they reset.",
     empty: "Add a budget to see how much you have left to spend in that category.",
   },
   goals: {
@@ -37,6 +38,17 @@ const primary = "min-h-11 rounded-xl bg-[#183c31] px-4 text-sm font-semibold tex
 const secondary = "min-h-11 rounded-xl border border-[#dce4d9] px-3 text-sm font-semibold text-[#31533c] disabled:opacity-50";
 const field = "mt-1 min-h-11 w-full min-w-0 rounded-xl border border-[#dce4d9] bg-white px-3 py-2 text-base";
 
+export function PlanningTabs({ active }: { active: "budgets" | "goals" | "bill-funds" }) {
+  const tabs = { budgets: "Budgets", goals: "Savings goals", "bill-funds": "Bill funds" } as const;
+  return <nav aria-label="Budget and goal planning" className="flex w-fit flex-wrap gap-1 rounded-xl bg-[#edf2eb] p-1">
+    {(Object.keys(tabs) as (keyof typeof tabs)[]).map((option) =>
+      <Link key={option} href={"/" + option} aria-current={option === active ? "page" : undefined}
+        className={"inline-flex min-h-10 items-center rounded-lg px-3 text-xs font-semibold sm:text-sm " + (option === active ? "bg-white text-[#183c31]" : "text-[#59685e]")}>
+        {tabs[option]}
+      </Link>)}
+  </nav>;
+}
+
 export function PlanningPage({ plan }: { plan: Plan }) {
   const { session } = useAccount();
   return <PageShell requiresLedger={!useLocalPlanning}>{session && <PlanningContent key={session.user.id + plan} session={session} plan={plan} />}</PageShell>;
@@ -44,7 +56,7 @@ export function PlanningPage({ plan }: { plan: Plan }) {
 
 function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
   const { report } = useLedger();
-  const { refreshLedger, remote } = useAccount();
+  const { refreshLedger, remote, weekStartDay } = useAccount();
   const [items, setItems] = useState<Item[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -56,12 +68,8 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
   for (const row of report.rows) {
     if (row.amountMinor < 0 && !categoryLabels.has(row.category)) categoryLabels.set(row.category, row.category);
   }
-  const spending = new Map<string, number>();
-  for (const { label, amount } of report.categories()) {
-    const key = label.trim().toLowerCase();
-    spending.set(key, (spending.get(key) ?? 0) + amount);
-  }
-  const ordered = [...(items ?? [])].sort((a, b) => {
+  const today = localToday();
+  const ordered = (items ?? []).filter((item) => !("fund_cadence" in item && item.fund_cadence)).sort((a, b) => {
     if ("next_due" in a && "next_due" in b) return Number(b.active) - Number(a.active) || a.next_due.localeCompare(b.next_due);
     return priorityWeight[priorityOf(b)] - priorityWeight[priorityOf(a)] || itemName(a).localeCompare(itemName(b));
   });
@@ -108,14 +116,9 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
 
   return (
     <FeaturePage title={copy.title} description={copy.description} cards={[]}
-      subtitle={plan === "budgets" ? report.range : undefined}
       action={<button className={primary} disabled={!items || Boolean(loadError)} onClick={() => setEditor({})}>{copy.action}</button>}>
-      {plan !== "subscriptions" && <nav aria-label="Budget and goal planning" className="flex w-fit gap-1 rounded-xl bg-[#edf2eb] p-1">
-        {(["budgets", "goals"] as const).map((option) => <Link key={option} href={"/" + option} aria-current={option === plan ? "page" : undefined}
-          className={"inline-flex min-h-10 items-center rounded-lg px-3 text-sm font-semibold " + (option === plan ? "bg-white text-[#183c31]" : "text-[#59685e]")}>
-          {option === "budgets" ? "Budgets" : "Savings goals"}
-        </Link>)}
-      </nav>}
+      {plan !== "subscriptions" && <PlanningTabs active={plan} />}
+      {plan === "subscriptions" && <Link href="/bill-funds" className="inline-flex min-h-11 items-center text-sm font-semibold text-[#31533c] underline">Set money aside instead · Bill funds</Link>}
       {useLocalPlanning && <p className="text-xs text-[#59685e]">Local preview · Changes are saved in this browser.{plan === "budgets" && !remote?.data ? " Spending totals appear when the ledger is connected." : ""}</p>}
       {loadError ? (
         <p role="alert" className="rounded-2xl border border-[#e4e9e2] bg-white p-4 text-sm">
@@ -140,7 +143,7 @@ function PlanningContent({ session, plan }: { session: Session; plan: Plan }) {
                   </div>
                   <button className={secondary} aria-label={"Edit " + itemName(item)} onClick={() => setEditor({ item })}>Edit</button>
                 </div>
-                {"category" in item ? <BudgetProgress item={item} spent={spending.get(item.category.trim().toLowerCase()) ?? 0} />
+                {"category" in item ? <BudgetProgress item={item} usage={budgetUsage(item, report.rows, today, report.start, weekStartDay)} />
                   : "saved_minor" in item ? <Progress amount={saved} target={item.amount_minor} label="Saved" goal
                       status={saved >= item.amount_minor ? "Goal reached" : formatMinor(item.amount_minor - saved) + " to go"} />
                   : <p className="mt-3 text-sm font-medium text-[#31533c]">{item.active ? "Next entry " + formatReceiptDate(item.next_due) + (item.cadence === "yearly_split" ? " · " + formatMinor(scheduledPayment(item)) : "") : "Paused"}</p>}
@@ -164,20 +167,22 @@ function priorityOf(item: Item | undefined) {
   return item && "priority" in item ? item.priority ?? "normal" : "normal";
 }
 
-function BudgetProgress({ item, spent }: { item: Budget; spent: number }) {
-  const remaining = item.amount_minor - spent;
-  return <Progress amount={spent} target={item.amount_minor} label="Spent" status={formatMinor(Math.abs(remaining)) + (remaining < 0 ? " over budget" : " left")} />;
+function BudgetProgress({ item, usage }: { item: Budget; usage: ReturnType<typeof budgetUsage> }) {
+  return <>
+    <p className="mt-2 text-xs text-[#59685e]">{usage.label}</p>
+    <Progress amount={usage.spent} target={item.amount_minor} label="Spent" status={formatMinor(Math.abs(usage.remaining)) + (usage.remaining < 0 ? " over budget" : " left")} />
+  </>;
 }
 
-function Progress({ amount, target, label, status, goal = false }: { amount: number; target: number; label: string; status: string; goal?: boolean }) {
-  const progress = Math.min(amount / target, 1);
+export function Progress({ amount, target, label, status, goal = false }: { amount: number; target: number; label: string; status: string; goal?: boolean }) {
+  const progress = Math.max(0, Math.min(amount / target, 1));
   const green = goal ? progress : 1 - progress;
   const hue = green < 0.5 ? green * 86 : 43 + (green - 0.5) * 202;
   const color = { "--progress-color": "hsl(" + hue + " 62% 38%)" } as CSSProperties;
   return (
     <div className="mt-3 space-y-1 text-sm">
       <p className="tabular-nums">{label} {formatMinor(amount)} of {formatMinor(target)}</p>
-      <progress aria-label={label} value={Math.min(amount, target)} max={target} style={color} className="block h-2 w-full overflow-hidden rounded-full bg-[#edf1eb] accent-[var(--progress-color)] [&::-webkit-progress-bar]:bg-[#edf1eb] [&::-webkit-progress-value]:bg-[var(--progress-color)] [&::-moz-progress-bar]:bg-[var(--progress-color)]" />
+      <progress aria-label={label} value={progress * target} max={target} style={color} className="block h-2 w-full overflow-hidden rounded-full bg-[#edf1eb] accent-[var(--progress-color)] [&::-webkit-progress-bar]:bg-[#edf1eb] [&::-webkit-progress-value]:bg-[var(--progress-color)] [&::-moz-progress-bar]:bg-[var(--progress-color)]" />
       <p className="text-xs font-medium text-[#59685e]">{status}</p>
     </div>
   );
@@ -192,12 +197,13 @@ function PlanForm({ plan, editor, categories, close, remove, commit }: {
   const titleId = useId();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [firstDate, setFirstDate] = useState(item && "starts_on" in item ? item.starts_on : localToday());
+  const [firstDate, setFirstDate] = useState(item && "cadence" in item ? item.starts_on : localToday());
+  const [budgetReset, setBudgetReset] = useState<BudgetReset>(item && "category" in item ? item.reset_period ?? "monthly" : "monthly");
   const defaultCategory = item && "category" in item ? item.category : "";
   const [cadence, setCadence] = useState<Cadence>(item && "cadence" in item ? item.cadence : "monthly");
   const [amountText, setAmountText] = useState(item ? (item.amount_minor / 100).toFixed(2) : "");
   const yearly = isYearlyCadence(cadence);
-  const amountLabel = { budgets: "Monthly limit (€)", goals: "Target amount (€)", subscriptions: yearly ? "Yearly amount (€)" : "Payment amount (€)" }[plan];
+  const amountLabel = { budgets: "Limit (€)", goals: "Target amount (€)", subscriptions: yearly ? "Yearly amount (€)" : "Payment amount (€)" }[plan];
   const amount = parseAmount(amountText);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -216,7 +222,8 @@ function PlanForm({ plan, editor, categories, close, remove, commit }: {
       return;
     }
     const payload = {
-      budgets: { category: values.get("category"), amount_minor: amount, priority: values.get("priority") },
+      budgets: { category: values.get("category"), amount_minor: amount, priority: values.get("priority"),
+        reset_period: budgetReset, starts_on: budgetReset === "once" ? values.get("budgetStartsOn") : undefined },
       goals: { name: values.get("name"), amount_minor: amount, saved_minor: savedMinor, priority: values.get("priority") },
       subscriptions: { name: values.get("name"), amount_minor: amount, starts_on: firstDate, cadence, active: values.has("active") },
     }[plan];
@@ -248,6 +255,17 @@ function PlanForm({ plan, editor, categories, close, remove, commit }: {
             <label className="block font-medium">{amountLabel}
               <input name="amount" value={amountText} onChange={(event) => setAmountText(event.target.value)} inputMode="decimal" required className={field} placeholder="0.00" />
             </label>
+            {plan === "budgets" && <>
+              <label className="block font-medium">Budget resets
+                <select className={field} value={budgetReset} onChange={(event) => setBudgetReset(event.target.value as BudgetReset)}>
+                  {Object.entries(budgetResetLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              {budgetReset === "once" && <label className="block font-medium">Start counting from
+                <input name="budgetStartsOn" type="date" required min="1900-01-01" max="9999-01-01" className={field}
+                  defaultValue={item && "category" in item ? item.starts_on ?? localToday() : localToday()} />
+              </label>}
+            </>}
             {plan !== "subscriptions" && <label className="block font-medium">Priority
               <select name="priority" defaultValue={priorityOf(item)} className={field}>
                 <option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option>
